@@ -23,4 +23,4 @@ npm run preview    # http://localhost:4173 測試建置結果（含 Service Work
 | `src/pages/*` | 各畫面 |
 
 ## 部署
-`.github/workflows/pages.yml`（放在 repo 根目錄的 `.github/workflows/`）推到 main 後自動發布到 GitHub Pages。
+`.github/workflows/pages.yml`推到 main 後自動發布到 GitHub Pages。
