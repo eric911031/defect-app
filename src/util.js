@@ -46,3 +46,6 @@ export function fmtTime(ts) {
   const d = new Date(ts);
   return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
+
+// 唯讀工地：6 個舊建案（全部已結案，不能新增或修改）
+export const isReadOnly = site => !!site && (site.唯讀 === true || site.啟用 === false);

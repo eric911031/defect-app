@@ -6,6 +6,7 @@ import { kv } from './db.js';
 import { loadMe, loadCodes } from './data.js';
 import { startAutoSync, flush } from './queue.js';
 import { errText } from './api.js';
+import { isReadOnly } from './util.js';
 import { Toast, TabBar, Spinner } from './components.jsx';
 import { Login } from './pages/Login.jsx';
 import { Sites, selectSite } from './pages/Sites.jsx';
@@ -75,7 +76,7 @@ export function App() {
   let page;
   if (!site || p0 === 'sites') page = <Sites />;
   else switch (p0) {
-    case 'register': page = user.角色 === '改善者' || site.啟用 === false ? <List /> : <Register />; break;
+    case 'register': page = user.角色 === '改善者' || isReadOnly(site) ? <List /> : <Register />; break;
     case 'list': page = <List />; break;
     case 'defect': page = <Detail id={decodeURIComponent(p1)} />; break;
     case 'fix': page = <Fix id={decodeURIComponent(p1)} />; break;

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { useStore, toast } from './store.js';
+import { useStore, toast, getState } from './store.js';
 import { compressPhoto } from './photo.js';
 import { getPosition, checkRange, hasCoords } from './gps.js';
-import { cls } from './util.js';
+import { cls, isReadOnly } from './util.js';
 import { go } from './router.js';
 
 export function Toast() {
@@ -24,7 +24,7 @@ export function Header({ title, backTo, right }) {
   return (
     <header class="hdr">
       {backTo ? <button class="hdr-btn" onClick={() => (backTo === -1 ? history.back() : go(backTo))} aria-label="返回">‹</button>
-        : <button class="hdr-site" onClick={() => go('/sites')}>{site ? site.名稱 : '選擇工地'} <span class="caret">▾</span></button>}
+        : <button class="hdr-site" onClick={() => go('/sites')}>{site ? site.名稱 : '選擇工地'}{isReadOnly(site) && <small class="ro">舊建案</small>} <span class="caret">▾</span></button>}
       <div class="hdr-title">{title}</div>
       <div class="hdr-right">
         {right}
@@ -52,7 +52,7 @@ export function TabBar({ path }) {
   if (!user) return null;
   const r = user.角色;
   const tabs = [];
-  if (r !== '改善者' && site?.啟用 !== false) tabs.push(['/register', '登記', ICONS.plus]);
+  if (r !== '改善者' && !isReadOnly(site)) tabs.push(['/register', '登記', ICONS.plus]);
   tabs.push(['/list', r === '改善者' ? '待改善' : '清單', ICONS.list]);
   if (r === '管理者') tabs.push(['/review', '確認', ICONS.check], ['/stats', '統計', ICONS.chart]);
   tabs.push(['/more', '更多', ICONS.more]);
@@ -199,24 +199,36 @@ export function Empty({ children }) { return <div class="empty">{children}</div>
 import { call } from './api.js';
 const photoCache = new Map();
 let pendingIds = new Map(), timer = null;
+// 照片ID 可能是 AppSheet 路徑字串（各工地可能重複），快取與請求都以「工地ID + 照片ID」區分
 function requestPhoto(id) {
-  if (photoCache.has(id)) return photoCache.get(id);
-  const p = new Promise(resolve => { pendingIds.set(id, resolve); });
-  photoCache.set(id, p);
+  const siteId = getState().site?.工地ID || '';
+  const key = siteId + '|' + id;
+  if (photoCache.has(key)) return photoCache.get(key);
+  const p = new Promise(resolve => { pendingIds.set(key, resolve); });
+  photoCache.set(key, p);
   clearTimeout(timer);
   timer = setTimeout(flushPhotos, 60);
   return p;
 }
 async function flushPhotos() {
   const batch = pendingIds; pendingIds = new Map();
-  const ids = [...batch.keys()];
-  for (let i = 0; i < ids.length; i += 20) {
-    const chunk = ids.slice(i, i + 20);
-    try {
-      const r = await call('photos', { 檔案ID: chunk, 尺寸: 400 });
-      chunk.forEach(id => { photoCache.set(id, Promise.resolve(r[id] || null)); batch.get(id)(r[id] || null); });
-    } catch {
-      chunk.forEach(id => { photoCache.delete(id); batch.get(id)(null); });
+  // 依工地分組，每次最多 20 張
+  const bySite = new Map();
+  for (const key of batch.keys()) {
+    const i = key.indexOf('|'), s = key.slice(0, i);
+    if (!bySite.has(s)) bySite.set(s, []);
+    bySite.get(s).push(key);
+  }
+  for (const [siteId, keys] of bySite) {
+    for (let i = 0; i < keys.length; i += 20) {
+      const chunk = keys.slice(i, i + 20);
+      const ids = chunk.map(k => k.slice(k.indexOf('|') + 1));
+      try {
+        const r = await call('photos', { 檔案ID: ids, 尺寸: 400, 工地ID: siteId || undefined });
+        chunk.forEach((k, j) => { const u = r[ids[j]] || null; photoCache.set(k, Promise.resolve(u)); batch.get(k)(u); });
+      } catch {
+        chunk.forEach(k => { photoCache.delete(k); batch.get(k)(null); });
+      }
     }
   }
 }

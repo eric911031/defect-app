@@ -6,7 +6,7 @@ import { codeText } from '../data.js';
 import { enqueue, flush } from '../queue.js';
 import { go } from '../router.js';
 import { POSITIONS } from '../config.js';
-import { today } from '../util.js';
+import { today, isReadOnly } from '../util.js';
 import { cachedDefect } from '../data.js';
 
 export function useDefect(id) {
@@ -37,7 +37,8 @@ export function Photos({ d }) {
 }
 
 export function Detail({ id }) {
-  const { user } = useStore();
+  const { user, site } = useStore();
+  const ro = isReadOnly(site);
   const { d, setD, err } = useDefect(id);
   const [rejecting, setRejecting] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -58,15 +59,15 @@ export function Detail({ id }) {
   }
   return (
     <>
-      <Header title="缺失明細" backTo={-1} right={role === '管理者' && <button class="hdr-btn txt" onClick={() => setEditing(true)}>編輯</button>} />
+      <Header title="缺失明細" backTo={-1} right={role === '管理者' && !ro && <button class="hdr-btn txt" onClick={() => setEditing(true)}>編輯</button>} />
       <main class="page">
         <div class="dhead"><StatusPill s={d.狀態} /><b>{d.棟 ? d.棟 + '棟 ' : ''}{d.戶別} {d.窗號}</b></div>
         {d.離線 && <p class="warn small">離線中，顯示上次下載的資料</p>}
         <Photos d={d} />
         <dl class="kv">{rows.map(([k, v]) => <><dt>{k}</dt><dd class={k === '退回原因' ? 'bad' : ''}>{v}</dd></>)}</dl>
         <div class="actions">
-          {d.狀態 === '未改善' && (role === '改善者' || role === '管理者') && <button class="btn primary block" onClick={() => go('/fix/' + encodeURIComponent(id))}>改善回報</button>}
-          {d.狀態 === '待確認' && role === '管理者' && <>
+          {!ro && d.狀態 === '未改善' && (role === '改善者' || role === '管理者') && <button class="btn primary block" onClick={() => go('/fix/' + encodeURIComponent(id))}>改善回報</button>}
+          {!ro && d.狀態 === '待確認' && role === '管理者' && <>
             <button class="btn danger" onClick={() => setRejecting(true)}>退回</button>
             <button class="btn primary" onClick={() => review('通過')}>通過</button>
           </>}

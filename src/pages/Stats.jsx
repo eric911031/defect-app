@@ -4,6 +4,9 @@ import { Header, Spinner } from '../components.jsx';
 import { call, errText } from '../api.js';
 import { STATUS } from '../config.js';
 import { swr } from '../data.js';
+import { isReadOnly } from '../util.js';
+import { selectSite } from './Sites.jsx';
+import { go } from '../router.js';
 
 // 狀態顏色（狀態色固定，永遠搭配圖示與文字）
 const COLOR = { 未改善: 'var(--st-todo)', 待確認: 'var(--st-wait)', 已結案: 'var(--st-done)' };
@@ -41,15 +44,17 @@ function Donut({ counts, total }) {
 }
 
 export function Stats() {
-  const { site } = useStore();
-  const [scope, setScope] = useState('site');
+  const { site, user } = useStore();
+  const olds = (user.工地 || []).filter(isReadOnly);
+  const [scope, setScope] = useState(isReadOnly(site) ? site.工地ID : 'site'); // 'site' | 'all' | 舊建案工地ID
+  const oldSite = olds.find(s => s.工地ID === scope);
   const [data, setData] = useState(null);
   const [err, setErr] = useState('');
   const [table, setTable] = useState(false);
   useEffect(() => {
     setData(null); setErr('');
     let live = true;
-    const q = scope === 'site' ? { 工地ID: site.工地ID } : {};
+    const q = scope === 'site' ? { 工地ID: site.工地ID } : scope === 'all' ? {} : { 工地ID: scope };
     swr('stats:' + (q.工地ID || 'all'), () => call('stats', q), v => live && setData(v)).catch(e => live && setErr(errText(e)));
     return () => { live = false; };
   }, [site.工地ID, scope]);
@@ -63,9 +68,24 @@ export function Stats() {
       <Header title="統計" right={<button class="hdr-btn txt" onClick={() => setTable(!table)}>{table ? '圖表' : '表格'}</button>} />
       <main class="page">
         <div class="chips">
-          <button class={'chip' + (scope === 'site' ? ' on' : '')} onClick={() => setScope('site')}>{site.名稱}</button>
+          {!isReadOnly(site) && <button class={'chip' + (scope === 'site' ? ' on' : '')} onClick={() => setScope('site')}>{site.名稱}</button>}
           <button class={'chip' + (scope === 'all' ? ' on' : '')} onClick={() => setScope('all')}>全部工地</button>
+          {olds.length > 0 && (
+            <select class={'chip sel' + (oldSite ? ' on' : '')} value={oldSite ? scope : ''} onChange={e => e.target.value && setScope(e.target.value)}>
+              <option value="">舊建案…</option>
+              {olds.map(s => <option value={s.工地ID}>{s.名稱}</option>)}
+            </select>
+          )}
         </div>
+        {oldSite && (
+          <div class="card ro-box">
+            <p class="small muted">舊建案資料只能查看，全部為已結案。</p>
+            <div class="actions">
+              <button class="btn" onClick={() => { selectSite(oldSite); go('/list'); }}>查看缺失清單</button>
+              <button class="btn" onClick={() => { selectSite(oldSite); go('/report'); }}>產生報告</button>
+            </div>
+          </div>
+        )}
         {err && <p class="err">{err}</p>}
         {!data && !err && <Spinner />}
         {data && <>
@@ -73,7 +93,7 @@ export function Stats() {
             {table ? <table class="tbl"><tr><th>狀態</th><th>筆數</th></tr>{STATUS.map(s => <tr><td>{s}</td><td>{counts[s] || 0}</td></tr>)}</table>
               : <Donut counts={counts} total={total} />}
           </section>
-          {blds.length > 0 && <section class="card"><h3>各棟進度</h3>
+          {blds.length > 0 && !(blds.length === 1 && blds[0].棟 === '（未分棟）') && <section class="card"><h3>各棟進度</h3>
             {table ? <table class="tbl"><tr><th>棟</th>{STATUS.map(s => <th>{s}</th>)}</tr>{blds.map(b => <tr><td>{b.棟}</td>{STATUS.map(s => <td>{b[s] || 0}</td>)}</tr>)}</table> :
               <div class="stack-list">
                 {blds.map(b => {

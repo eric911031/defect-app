@@ -183,3 +183,7 @@ figcaption { font-size: 12px; text-align: center; padding: 4px; color: var(--ink
 .tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
 .tbl th, .tbl td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; }
 .prose ol, .prose ul { padding-left: 22px; } .prose li { margin: 6px 0; }
+.hdr-site .ro { font-size: 11px; font-weight: 600; margin-left: 4px; padding: 1px 6px; border-radius: 999px; background: var(--line); color: var(--ink2); }
+select.chip.sel { width: auto; min-height: 40px; padding: 8px 30px 8px 14px; border-radius: 999px; font-size: 15px; }
+select.chip.sel.on { background-color: var(--pri); color: var(--pri-ink); border-color: var(--pri); }
+.ro-box .actions { margin: 6px 0 0; }

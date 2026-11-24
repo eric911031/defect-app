@@ -5,6 +5,7 @@ import { loadDefects, cachedDefects, codeText } from '../data.js';
 import { onSent } from '../queue.js';
 import { go } from '../router.js';
 import { STATUS } from '../config.js';
+import { isReadOnly } from '../util.js';
 import { errText } from '../api.js';
 
 function unitSort(a, b) {
@@ -22,7 +23,9 @@ export function List() {
   const [err, setErr] = useState('');
   const [open, setOpen] = useState({});
   const [tick, setTick] = useState(0);
-  const st = fixer ? '未改善' : status;
+  const ro = isReadOnly(site);
+  // 舊建案全部已結案，預設看全部
+  const st = fixer ? '未改善' : ro && status === '未改善' ? '全部' : status;
 
   useEffect(() => onSent(() => setTick(t => t + 1)), []);
   useEffect(() => {
@@ -56,7 +59,7 @@ export function List() {
     <>
       <Header title={fixer ? '待改善' : '缺失清單'} />
       <main class="page">
-        {!fixer && <Chips options={[...STATUS, '全部']} value={status} onChange={v => { setStatus(v); sessionStorage.setItem('listStatus', v); }} />}
+        {!fixer && <Chips options={[...STATUS, '全部']} value={st} onChange={v => { setStatus(v); sessionStorage.setItem('listStatus', v); }} />}
         <div class="filters">
           <input type="search" placeholder="搜尋戶別、窗號、代碼、備註" value={q} onInput={e => setQ(e.target.value)} />
           {blds.length > 1 && <select value={bld} onChange={e => setBld(e.target.value)}><option value="">全部棟</option>{blds.map(b => <option value={b}>{b}棟</option>)}</select>}
