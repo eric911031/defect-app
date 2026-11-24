@@ -4,7 +4,7 @@ function ls(key) { try { return localStorage.getItem(key) || ''; } catch { retur
 // Google 登入用戶端 ID（公開值，不是密碼）
 const DEFAULT_CLIENT_ID = '986400221659-5q8lb0cilanjnrd3k0nncjs63diov3b5.apps.googleusercontent.com';
 // 後端 Web App 網址：W2 部署後填入（也可用 repo 變數 VITE_API_URL 覆蓋）
-const DEFAULT_API_URL = '';
+const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbxPcIAfqwQHYu3MVr6lk67QjCZuf7oLNfk2r8oiKuGGLq1cwSGR2w1WQR34JB04o8uR/exec';
 
 export const config = {
   get apiUrl() { return ls('cfg.apiUrl') || import.meta.env.VITE_API_URL || DEFAULT_API_URL; },
