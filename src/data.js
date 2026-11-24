@@ -26,10 +26,13 @@ export async function loadCodes() {
 }
 
 // 讀取某工地的缺失（自動翻頁）。回傳 {items, fromCache}
+export const defectsKey = (siteId, status) => `defects:${siteId}:${status || 'all'}`;
+export async function cachedDefects(siteId, status) { try { return await kv.get(defectsKey(siteId, status)); } catch { return null; } }
+
 export async function loadDefects(siteId, status) {
-  const key = `defects:${siteId}:${status || 'all'}`;
+  const key = defectsKey(siteId, status);
   try {
-    const per = 500; let page = 1, items = [];
+    const per = 1000; let page = 1, items = [];
     for (;;) {
       const r = await call('listDefects', { 工地ID: siteId, 狀態: status || undefined, 頁: page, 每頁: per });
       const batch = Array.isArray(r) ? r : r.items || [];
@@ -61,4 +64,18 @@ export async function cachedDefect(id) {
     if (d) return d;
   }
   return null;
+}
+
+// 先回快取（若有）再背景更新：onData 可能被呼叫兩次
+export async function swr(key, fetcher, onData) {
+  let cached = null;
+  try { cached = await kv.get(key); } catch {}
+  if (cached) onData(cached.v, true);
+  try {
+    const v = await fetcher();
+    kv.set(key, { v, at: Date.now() }).catch(() => {});
+    onData(v, false);
+  } catch (e) {
+    if (!cached) throw e;
+  }
 }

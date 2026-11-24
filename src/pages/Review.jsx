@@ -2,7 +2,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { useStore, toast } from '../store.js';
 import { Header, Spinner, Empty } from '../components.jsx';
 import { call, errText } from '../api.js';
-import { loadDefects, codeText } from '../data.js';
+import { loadDefects, cachedDefects, codeText } from '../data.js';
 import { Photos, RejectModal } from './Detail.jsx';
 
 // 待確認：改善前後照片並排，逐筆通過或退回
@@ -12,7 +12,9 @@ export function Review() {
   const [err, setErr] = useState('');
   useEffect(() => {
     setItems(null);
-    loadDefects(site.工地ID, '待確認').then(r => setItems(r.items)).catch(e => setErr(errText(e)));
+    let fresh = false;
+    cachedDefects(site.工地ID, '待確認').then(c => { if (c && !fresh) setItems(c.items); });
+    loadDefects(site.工地ID, '待確認').then(r => { fresh = true; setItems(r.items); }).catch(e => setErr(errText(e)));
   }, [site.工地ID]);
   const done = id => setItems(l => l.filter(x => x.缺失ID !== id));
   return (

@@ -11,7 +11,7 @@ export function More() {
   const admin = user.角色 === '管理者';
   function logout() {
     if (pending && !confirm(`還有 ${pending} 筆待上傳，登出後會保留在手機，下次登入再上傳。確定登出？`)) return;
-    auth.logout(); setState({ user: null }); go('/');
+    auth.logout(); kv.clear().catch(() => {}); setState({ user: null }); go('/');
   }
   return (
     <>
@@ -58,6 +58,7 @@ export function Settings() {
   function save() {
     config.set('apiUrl', api.trim()); config.set('clientId', cid.trim());
     config.set('mock', mock ? '1' : ''); config.set('mockOffline', off ? '1' : ''); config.set('mockGps', mgps ? '' : '0');
+    kv.clear().catch(() => {});
     toast('已儲存，重新載入中', 'ok');
     setTimeout(() => location.reload(), 600);
   }

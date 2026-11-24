@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { useStore } from '../store.js';
 import { Header, Spinner, StatusPill, Chips, Empty, Thumb } from '../components.jsx';
-import { loadDefects, codeText } from '../data.js';
+import { loadDefects, cachedDefects, codeText } from '../data.js';
 import { onSent } from '../queue.js';
 import { go } from '../router.js';
 import { STATUS } from '../config.js';
@@ -27,8 +27,11 @@ export function List() {
   useEffect(() => onSent(() => setTick(t => t + 1)), []);
   useEffect(() => {
     let live = true;
-    setErr(''); if (!res) setRes(null);
-    loadDefects(site.工地ID, st === '全部' ? '' : st).then(r => live && setRes(r)).catch(e => live && setErr(errText(e)));
+    const s2 = st === '全部' ? '' : st;
+    setErr('');
+    let gotFresh = false;
+    cachedDefects(site.工地ID, s2).then(c => { if (live && c && !gotFresh) setRes({ items: c.items, fromCache: true, refreshing: true }); });
+    loadDefects(site.工地ID, s2).then(r => { gotFresh = true; live && setRes(r); }).catch(e => live && setErr(errText(e)));
     return () => { live = false; };
   }, [site.工地ID, st, tick]);
 
@@ -58,7 +61,7 @@ export function List() {
           <input type="search" placeholder="搜尋戶別、窗號、代碼、備註" value={q} onInput={e => setQ(e.target.value)} />
           {blds.length > 1 && <select value={bld} onChange={e => setBld(e.target.value)}><option value="">全部棟</option>{blds.map(b => <option value={b}>{b}棟</option>)}</select>}
         </div>
-        {res?.fromCache && <p class="warn small">離線中，顯示上次下載的資料</p>}
+        {res?.refreshing ? <p class="muted small">更新中…</p> : res?.fromCache && <p class="warn small">離線中，顯示上次下載的資料</p>}
         {err && <p class="err">{err}</p>}
         {!res && !err && <Spinner />}
         {res && <p class="muted small">{groups.arr.length} 戶・{groups.count} 筆</p>}

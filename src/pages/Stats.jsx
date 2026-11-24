@@ -3,6 +3,7 @@ import { useStore } from '../store.js';
 import { Header, Spinner } from '../components.jsx';
 import { call, errText } from '../api.js';
 import { STATUS } from '../config.js';
+import { swr } from '../data.js';
 
 // 狀態顏色（狀態色固定，永遠搭配圖示與文字）
 const COLOR = { 未改善: 'var(--st-todo)', 待確認: 'var(--st-wait)', 已結案: 'var(--st-done)' };
@@ -47,7 +48,10 @@ export function Stats() {
   const [table, setTable] = useState(false);
   useEffect(() => {
     setData(null); setErr('');
-    call('stats', scope === 'site' ? { 工地ID: site.工地ID } : {}).then(setData).catch(e => setErr(errText(e)));
+    let live = true;
+    const q = scope === 'site' ? { 工地ID: site.工地ID } : {};
+    swr('stats:' + (q.工地ID || 'all'), () => call('stats', q), v => live && setData(v)).catch(e => live && setErr(errText(e)));
+    return () => { live = false; };
   }, [site.工地ID, scope]);
   const counts = data?.狀態 || {};
   const total = STATUS.reduce((a, s) => a + (counts[s] || 0), 0);
