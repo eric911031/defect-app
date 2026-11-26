@@ -187,3 +187,9 @@ figcaption { font-size: 12px; text-align: center; padding: 4px; color: var(--ink
 select.chip.sel { width: auto; min-height: 40px; padding: 8px 30px 8px 14px; border-radius: 999px; font-size: 15px; }
 select.chip.sel.on { background-color: var(--pri); color: var(--pri-ink); border-color: var(--pri); }
 .ro-box .actions { margin: 6px 0 0; }
+.grp-hdr.floor { background: var(--card); border: 1px solid var(--line); border-radius: var(--r); padding: 12px; font-size: 16px; }
+.grp-hdr.floor small { font-size: 13px; }
+.unit { margin: 8px 0 12px 8px; }
+.unit-hdr { display: flex; align-items: baseline; gap: 8px; padding: 4px 4px 6px; font-size: 14px; color: var(--ink2); }
+.filters select { max-width: 32%; }
+.filters { flex-wrap: wrap; } .filters input[type=search] { flex: 1 1 100%; } .filters select { flex: 1 1 0; max-width: none; }

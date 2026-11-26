@@ -49,3 +49,22 @@ export function fmtTime(ts) {
 
 // 唯讀工地：6 個舊建案（全部已結案，不能新增或修改）
 export const isReadOnly = site => !!site && (site.唯讀 === true || site.啟用 === false);
+
+// 由戶別解析樓層：2A1 → 2F / A1、12B3 → 12F / B3、20F - A2 → 20F / A2、B1A1 → B1 / A1、10樓梯廳 → 10F / 梯廳。
+// 認不出來的（例如「右邊R1F」、純數字 301）回傳 floor = null，畫面放到「其他」。
+export function parseUnit(raw) {
+  const s = String(raw || '').toUpperCase().replace(/\s+/g, '');
+  if (!s) return { floor: null, label: '其他', unit: '' };
+  let m;
+  // 地下室：B1、B2F、B1-A1、B1FA1（B 後面接數字，再接 F／分隔符號／字母或結尾）
+  if ((m = s.match(/^B(\d{1,2})F?(?:[-_.]|(?=[A-Z])|$)(.*)$/))) {
+    return { floor: -Number(m[1]), label: `B${Number(m[1])}`, unit: m[2] || '' };
+  }
+  // 2A1、12B3、20F-A2、15F、2-1、10樓梯廳、3樓A1
+  if ((m = s.match(/^(\d{1,2})(?:F|樓)?(?:[-_.]|(?=[A-Z一-鿿])|$)(.*)$/))) {
+    const n = Number(m[1]);
+    // 「2-1」這種沒有 F 的純數字戶號也算樓層；「301」這種全數字不拆
+    if (n > 0 && !(/^\d+$/.test(s) && s.length > 2)) return { floor: n, label: `${n}F`, unit: m[2] || '' };
+  }
+  return { floor: null, label: '其他', unit: s };
+}

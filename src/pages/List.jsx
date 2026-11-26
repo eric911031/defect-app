@@ -5,19 +5,17 @@ import { loadDefects, cachedDefects, codeText } from '../data.js';
 import { onSent } from '../queue.js';
 import { go } from '../router.js';
 import { STATUS } from '../config.js';
-import { isReadOnly } from '../util.js';
+import { isReadOnly, parseUnit } from '../util.js';
 import { errText } from '../api.js';
 
-function unitSort(a, b) {
-  const n = s => { const m = String(s).match(/^(B?)(\d+)/); return m ? (m[1] ? -1 : 1) * +m[2] : 999; };
-  return n(a) - n(b) || String(a).localeCompare(String(b));
-}
+const natural = (a, b) => String(a).localeCompare(String(b), 'zh', { numeric: true });
 
 export function List() {
   const { site, user } = useStore();
   const fixer = user.角色 === '改善者';
   const [status, setStatus] = useState(() => sessionStorage.getItem('listStatus') || '未改善');
   const [bld, setBld] = useState('');
+  const [floorF, setFloorF] = useState('');
   const [q, setQ] = useState('');
   const [res, setRes] = useState(null);
   const [err, setErr] = useState('');
@@ -40,20 +38,38 @@ export function List() {
 
   const items = res?.items || [];
   const blds = useMemo(() => [...new Set(items.map(d => d.棟).filter(Boolean))].sort(), [items]);
+  // 依「棟 › 樓層 › 戶別」分組；樓層由戶別自動解析（2A1 → 2F）
+  const parsed = useMemo(() => items.map(d => ({ d, p: parseUnit(d.戶別) })), [items]);
+  const floorOpts = useMemo(() => {
+    const m = new Map();
+    for (const { p } of parsed) m.set(p.label, p.floor);
+    return [...m.entries()].sort((a, b) => (a[1] ?? 1e9) - (b[1] ?? 1e9)).map(e => e[0]);
+  }, [parsed]);
   const groups = useMemo(() => {
     const k = q.trim().toUpperCase();
-    const filtered = items.filter(d => (!bld || d.棟 === bld) && (!k || `${d.戶別} ${d.窗號} ${d.代碼} ${d.代碼內容 || codeText(d.代碼)} ${d.備註}`.toUpperCase().includes(k)));
-    const m = new Map();
-    for (const d of filtered) {
-      const key = `${d.棟 ? d.棟 + '棟 ' : ''}${d.戶別 || '（未填戶別）'}`;
-      if (!m.has(key)) m.set(key, { key, 棟: d.棟 || '', 戶別: d.戶別 || '', list: [] });
-      m.get(key).list.push(d);
+    const filtered = parsed.filter(({ d, p }) => (!bld || d.棟 === bld) && (!floorF || p.label === floorF) &&
+      (!k || `${d.戶別} ${d.窗號} ${d.代碼} ${d.代碼內容 || codeText(d.代碼)} ${d.備註}`.toUpperCase().includes(k)));
+    const floorsM = new Map();
+    for (const { d, p } of filtered) {
+      const fkey = `${d.棟 || ''}|${p.label}`;
+      if (!floorsM.has(fkey)) floorsM.set(fkey, { key: fkey, title: `${d.棟 ? d.棟 + '棟 ' : ''}${p.label}`, 棟: d.棟 || '', floor: p.floor, units: new Map(), count: 0 });
+      const f = floorsM.get(fkey);
+      // 同一戶不同寫法（10F-A3、10F - A3、10A3）合併；有樓層時只顯示戶號
+      const name = p.floor != null ? (p.unit || '（整層）') : (d.戶別 || '（未填戶別）');
+      if (!f.units.has(name)) f.units.set(name, { name, list: [] });
+      const ukey = name;
+      f.units.get(ukey).list.push(d);
+      f.count++;
     }
-    const arr = [...m.values()].sort((a, b) => a.棟.localeCompare(b.棟) || unitSort(a.戶別, b.戶別));
-    arr.forEach(g => g.list.sort((a, b) => String(a.窗號).localeCompare(String(b.窗號), 'zh', { numeric: true }) || (+a.順序 || 0) - (+b.順序 || 0)));
-    return { arr, count: filtered.length };
-  }, [items, bld, q]);
-  const many = groups.arr.length > 12 && !q;
+    const arr = [...floorsM.values()].sort((a, b) => a.棟.localeCompare(b.棟) || (a.floor ?? 1e9) - (b.floor ?? 1e9));
+    for (const f of arr) {
+      f.units = [...f.units.values()].sort((a, b) => natural(a.name, b.name));
+      f.units.forEach(u => u.list.sort((a, b) => natural(a.窗號, b.窗號) || (+a.順序 || 0) - (+b.順序 || 0)));
+    }
+    const unitCount = arr.reduce((n, f) => n + f.units.length, 0);
+    return { arr, count: filtered.length, unitCount };
+  }, [parsed, bld, floorF, q]);
+  const many = groups.arr.length > 6 && !q && !floorF;
 
   return (
     <>
@@ -63,20 +79,26 @@ export function List() {
         <div class="filters">
           <input type="search" placeholder="搜尋戶別、窗號、代碼、備註" value={q} onInput={e => setQ(e.target.value)} />
           {blds.length > 1 && <select value={bld} onChange={e => setBld(e.target.value)}><option value="">全部棟</option>{blds.map(b => <option value={b}>{b}棟</option>)}</select>}
+          {floorOpts.length > 1 && <select value={floorF} onChange={e => setFloorF(e.target.value)}><option value="">全部樓層</option>{floorOpts.map(f => <option value={f}>{f}</option>)}</select>}
         </div>
         {res?.refreshing ? <p class="muted small">更新中…</p> : res?.fromCache && <p class="warn small">離線中，顯示上次下載的資料</p>}
         {err && <p class="err">{err}</p>}
         {!res && !err && <Spinner />}
-        {res && <p class="muted small">{groups.arr.length} 戶・{groups.count} 筆</p>}
+        {res && <p class="muted small">{groups.arr.length} 個樓層・{groups.unitCount} 戶・{groups.count} 筆{many ? '・點樓層展開' : ''}</p>}
         {res && groups.count === 0 && <Empty>沒有符合的缺失</Empty>}
-        {groups.arr.map(g => {
-          const isOpen = !many || open[g.key];
+        {groups.arr.map(f => {
+          const isOpen = !many || open[f.key];
           return (
             <section class="grp">
-              <button class="grp-hdr" onClick={() => setOpen(o => ({ ...o, [g.key]: !isOpen }))}>
-                <b>{g.key}</b><span class="cnt">{g.list.length}</span><span class="caret">{isOpen ? '▾' : '▸'}</span>
+              <button class="grp-hdr floor" onClick={() => setOpen(o => ({ ...o, [f.key]: !isOpen }))}>
+                <b>{f.title}</b><small class="muted">{f.units.length} 戶</small><span class="cnt">{f.count}</span><span class="caret">{isOpen ? '▾' : '▸'}</span>
               </button>
-              {isOpen && <ul class="list">{g.list.map(d => <DefectRow d={d} />)}</ul>}
+              {isOpen && f.units.map(u => (
+                <div class="unit">
+                  <div class="unit-hdr"><b>{u.name}</b><span class="muted small">{u.list.length} 筆</span></div>
+                  <ul class="list">{u.list.map(d => <DefectRow d={d} />)}</ul>
+                </div>
+              ))}
             </section>
           );
         })}

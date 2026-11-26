@@ -49,7 +49,7 @@ function photoSvg(text, hue) {
       db.photos[id + '前'] = photoSvg(`改善前 ${site.名稱} #${i + 1}`, 10);
       if (st !== '未改善') db.photos[id + '後'] = photoSvg(`改善後 ${site.名稱} #${i + 1}`, 130);
       db.缺失.push({
-        缺失ID: id, 工地ID: site.工地ID, 棟: pick(blds, n + 1), 戶別: `${floor}F${suf ? '-' + suf : ''}`, 窗號: `W${1 + (i % 6)}`, 順序: 1 + (i % 3), 長度: '',
+        缺失ID: id, 工地ID: site.工地ID, 棟: pick(blds, n + 1), 戶別: i === 7 ? '10樓梯廳' : !suf ? `${floor}F` : i % 3 === 0 ? `${floor}${suf}` : i % 3 === 1 ? `${floor}F - ${suf}` : `${floor}F-${suf}`, 窗號: `W${1 + (i % 6)}`, 順序: 1 + (i % 3), 長度: '',
         位置: '', 代碼: code, 備註: i % 4 === 0 ? '客廳落地窗' : '', 狀態: st, 登記日期: `2026-11-${String(1 + (i % 20)).padStart(2, '0')}`, 登記人: 'reg@test', 登記GPS: '',
         改善前照片ID: id + '前', 改善後照片ID: st !== '未改善' ? id + '後' : '', 改善日期: st !== '未改善' ? '2026-11-21' : '', 改善人: st !== '未改善' ? 'fix@test' : '', 改善GPS: '',
         確認人: st === '已結案' ? 'admin@test' : '', 確認日期: st === '已結案' ? '2026-11-22' : '', 退回原因: i === 6 ? '照片看不清楚，請重拍' : '', 來源: '新系統', 原始位置: '', 更新時間: new Date().toISOString()

@@ -237,6 +237,7 @@ export function Thumb({ url, fileId, cls: c = 'thumb' }) {
   const [src, setSrc] = useState(url || null);
   useEffect(() => {
     if (url || !fileId) return;
+    if (!ref.current) return;
     let live = true;
     const io = new IntersectionObserver(es => {
       if (es.some(e => e.isIntersecting)) { io.disconnect(); requestPhoto(fileId).then(u => live && setSrc(u)); }
@@ -245,5 +246,5 @@ export function Thumb({ url, fileId, cls: c = 'thumb' }) {
     return () => { live = false; io.disconnect(); };
   }, [url, fileId]);
   if (!url && !fileId) return <span class={c + ' none'}>無照片</span>;
-  return src ? <img class={c} src={src} loading="lazy" alt="" /> : <span ref={ref} class={c + ' none'}>…</span>;
+  return src ? <img ref={ref} class={c} src={src} loading="lazy" alt="" /> : <span ref={ref} class={c + ' none'}>…</span>;
 }
