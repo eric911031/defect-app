@@ -58,6 +58,16 @@ function photoSvg(text, hue) {
   }
 })();
 
+const reports = {};
+function reportView(j) { const { per, ...o } = j; return { ...o, 部分: j.部分.map(x => ({ ...x })) }; }
+function reportStep(j) {
+  if (j.完成) return reportView(j);
+  const i = j.已完成份數, 起 = i * j.per + 1, 迄 = Math.min(j.筆數, (i + 1) * j.per);
+  j.部分.push({ 序: i + 1, 檔案ID: 'mock' + i, 檔名: `報告_第${String(i + 1).padStart(2, '0')}份(共${j.總份數}份).pdf`, 網址: 'https://drive.google.com/', 起, 迄, 筆數: 迄 - 起 + 1 });
+  j.已完成份數++;
+  if (j.已完成份數 >= j.總份數) { j.完成 = true; j.url = j.部分[0].網址; }
+  return reportView(j);
+}
 const wait = ms => new Promise(r => setTimeout(r, ms));
 const codeMap = () => Object.fromEntries(db.缺失代碼.map(c => [c.代碼, c]));
 
@@ -178,8 +188,21 @@ export async function handle(action, data = {}, token) {
     }
     case 'generateReport': {
       need(u, '管理者'); siteCheck(u, data.工地ID);
-      await wait(1500);
-      return { 報告ID: 'R' + Date.now(), url: 'https://drive.google.com/', PDF檔案ID: 'mock' };
+      await wait(800);
+      const st = data.狀態 || ['已結案'];
+      const n = db.缺失.filter(d => d.工地ID === data.工地ID && st.includes(d.狀態)).length;
+      const per = 10, total = Math.max(1, Math.ceil(n / per));
+      const job = { 報告ID: 'R' + Date.now(), 筆數: n, 總份數: total, 已完成份數: 0, 部分: [], 資料夾網址: 'https://drive.google.com/drive/', 完成: false, per };
+      reports[job.報告ID] = job;
+      if (total === 1) return reportStep(job);
+      return reportView(job);
+    }
+    case 'reportContinue': {
+      need(u, '管理者');
+      const job = reports[data.報告ID];
+      if (!job) throw new ApiError('NOT_FOUND', '找不到這份報告的進度');
+      await wait(1200);
+      return reportStep(job);
     }
     case 'admin.list': { need(u, '管理者'); return (db[data.分頁] || []).map(r => ({ ...r })); }
     case 'admin.save': {

@@ -193,3 +193,7 @@ select.chip.sel.on { background-color: var(--pri); color: var(--pri-ink); border
 .unit-hdr { display: flex; align-items: baseline; gap: 8px; padding: 4px 4px 6px; font-size: 14px; color: var(--ink2); }
 .filters select { max-width: 32%; }
 .filters { flex-wrap: wrap; } .filters input[type=search] { flex: 1 1 100%; } .filters select { flex: 1 1 0; max-width: none; }
+.progress { height: 10px; background: var(--line); border-radius: 999px; overflow: hidden; margin: 8px 0 4px; }
+.progress span { display: block; height: 100%; background: var(--pri); border-radius: 999px; transition: width .4s; }
+.warn-box { background: var(--warn-bg); color: var(--warn-ink); border-color: transparent; }
+.parts { margin-top: 8px; }
