@@ -59,7 +59,7 @@ function photoSvg(text, hue) {
 })();
 
 const reports = {};
-function reportView(j) { const { per, ...o } = j; return { ...o, 部分: j.部分.map(x => ({ ...x })) }; }
+function reportView(j) { const { per, timer, ...o } = j; return { ...o, 部分: j.部分.map(x => ({ ...x })) }; }
 function reportStep(j) {
   if (j.完成) return reportView(j);
   const i = j.已完成份數, 起 = i * j.per + 1, 迄 = Math.min(j.筆數, (i + 1) * j.per);
@@ -195,6 +195,14 @@ export async function handle(action, data = {}, token) {
       const job = { 報告ID: 'R' + Date.now(), 筆數: n, 總份數: total, 已完成份數: 0, 部分: [], 資料夾網址: 'https://drive.google.com/drive/', 完成: false, per };
       reports[job.報告ID] = job;
       if (total === 1) return reportStep(job);
+      job.背景 = true;
+      job.timer = setInterval(() => { reportStep(job); if (job.完成) clearInterval(job.timer); }, 3000);
+      return reportView(job);
+    }
+    case 'reportStatus': {
+      need(u, '管理者');
+      const job = reports[data.報告ID];
+      if (!job) throw new ApiError('NOT_FOUND', '找不到這份報告的進度');
       return reportView(job);
     }
     case 'reportContinue': {

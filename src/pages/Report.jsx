@@ -28,19 +28,41 @@ export function Report() {
 
   useEffect(() => () => { stopRef.current = true; }, []);
 
+  // 回到報告頁：用 reportStatus 查上次的報告（後端 2.2）；背景產生中就自動繼續看進度
+  useEffect(() => {
+    if (!pending) return;
+    call('reportStatus', { 報告ID: pending.報告ID }).then(p => {
+      setProg(p);
+      if (p.完成) { saveJob(site.工地ID, { ...pending, 完成: true }); setPending(null); }
+      else if (p.背景) resume(p);
+    }).catch(e => {
+      if (e.code === 'NOT_FOUND') { saveJob(site.工地ID, null); setPending(null); }
+      // 2.1 後端沒有 reportStatus：保留「繼續產生」按鈕
+    });
+  }, []);
+
+  // 後端 2.2：背景:true 時伺服器自己做，前端每 15 秒用 reportStatus 查進度；
+  // 背景:false（或 2.1）時由前端呼叫 reportContinue 一份一份推進。
   async function runLoop(first) {
     // 舊版後端（2.0）沒有「完成」欄位，視為一次完成
     const norm = x => x && x.完成 === undefined ? { ...x, 完成: true, 總份數: 1, 已完成份數: 1 } : x;
     let p = norm(first), fails = 0;
     setProg(p);
     while (p && !p.完成 && !stopRef.current) {
-      if (p.處理中) { setNote('伺服器正在產生中，稍候…'); await wait(5000); }
       try {
-        setNote(`正在產生第 ${(p.已完成份數 || 0) + 1} 份（每份約 1–2 分鐘，請保持這個畫面開著）`);
-        p = norm(await call('reportContinue', { 報告ID: p.報告ID }));
+        if (p.背景) {
+          setNote('伺服器正在背景產生，可以關掉 App，稍後回到報告頁查看。');
+          await wait(15000);
+          if (stopRef.current) break;
+          p = norm(await call('reportStatus', { 報告ID: p.報告ID }));
+        } else {
+          if (p.處理中) { setNote('伺服器正在產生中，稍候…'); await wait(5000); }
+          setNote(`正在產生第 ${(p.已完成份數 || 0) + 1} 份（每份約 1 分鐘，請保持這個畫面開著）`);
+          p = norm(await call('reportContinue', { 報告ID: p.報告ID }));
+        }
         fails = 0;
         setProg(p);
-        saveJob(site.工地ID, p.完成 ? null : { 報告ID: p.報告ID, 總份數: p.總份數, 已完成份數: p.已完成份數, at: Date.now() });
+        saveJob(site.工地ID, { 報告ID: p.報告ID, 總份數: p.總份數, 已完成份數: p.已完成份數, 完成: !!p.完成, at: Date.now() });
       } catch (e) {
         if (e.code === 'NOT_FOUND') { saveJob(site.工地ID, null); throw e; }
         if (!(e.network || e.code === 'BUSY') || ++fails > 5) throw e;
@@ -48,8 +70,8 @@ export function Report() {
         await wait(fails * 5000);
       }
     }
-    setNote('');
-    if (p?.完成) { saveJob(site.工地ID, null); setPending(null); toast('報告已產生', 'ok'); }
+    setNote(p?.背景 && !p.完成 ? '伺服器會繼續在背景產生，回到這頁就能看到進度。' : '');
+    if (p?.完成) { setPending(null); toast('報告已產生', 'ok'); }
   }
 
   async function gen() {
@@ -61,15 +83,15 @@ export function Report() {
       if (p.完成 === false) saveJob(site.工地ID, { 報告ID: p.報告ID, 總份數: p.總份數, 已完成份數: p.已完成份數, at: Date.now() });
       await runLoop(p);
     } catch (e) { toast(errText(e), 'err'); setNote(''); }
-    finally { setRunning(false); setPending(loadJob(site.工地ID)); }
+    finally { setRunning(false); const j = loadJob(site.工地ID); setPending(j && !j.完成 ? j : null); }
   }
 
-  async function resume() {
+  async function resume(from) {
     stopRef.current = false;
     setRunning(true);
-    try { await runLoop({ 報告ID: pending.報告ID, 完成: false, 總份數: pending.總份數, 已完成份數: pending.已完成份數 }); }
+    try { await runLoop(from || { 報告ID: pending.報告ID, 完成: false, 總份數: pending.總份數, 已完成份數: pending.已完成份數 }); }
     catch (e) { toast(e.code === 'NOT_FOUND' ? '這份報告的進度已過期（超過 7 天），請重新產生' : errText(e), 'err'); setNote(''); }
-    finally { setRunning(false); setPending(loadJob(site.工地ID)); }
+    finally { setRunning(false); const j = loadJob(site.工地ID); setPending(j && !j.完成 ? j : null); }
   }
 
   const parts = prog?.部分 || [];
@@ -79,12 +101,12 @@ export function Report() {
       <Header title="產生 PDF 報告" backTo="/more" />
       <main class="page form">
         <p class="muted">{site.名稱}：改善前後照片對照，每筆一頁。資料多時會自動分成多份 PDF。</p>
-        {pending && !running && !prog?.完成 && (
+        {pending && !running && !prog?.完成 && !pending.完成 && (
           <div class="card warn-box">
             <p>上次的報告還沒產生完（已完成 {pending.已完成份數 || 0} / {pending.總份數 || '?'} 份）。</p>
             <div class="actions">
               <button class="btn" onClick={() => { saveJob(site.工地ID, null); setPending(null); }}>放棄</button>
-              <button class="btn primary" onClick={resume}>繼續產生</button>
+              <button class="btn primary" onClick={() => resume()}>繼續產生</button>
             </div>
           </div>
         )}
@@ -95,7 +117,7 @@ export function Report() {
           <label class="fld"><span>迄</span><input type="date" value={to} onInput={e => setTo(e.target.value)} disabled={running} /></label>
         </div>
         {!running && <button class="btn primary block" onClick={gen}>產生報告</button>}
-        {running && <button class="btn ghost block" onClick={() => { stopRef.current = true; setNote('會在這一份完成後暫停，之後可按「繼續產生」'); }}>暫停</button>}
+        {running && !prog?.背景 && <button class="btn ghost block" onClick={() => { stopRef.current = true; setNote('會在這一份完成後暫停，之後可按「繼續產生」'); }}>暫停</button>}
 
         {(running || prog) && (
           <div class="card">
