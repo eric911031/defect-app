@@ -100,7 +100,7 @@ export function Report() {
     <>
       <Header title="產生 PDF 報告" backTo="/more" />
       <main class="page form">
-        <p class="muted">{site.名稱}：改善前後照片對照，每筆一頁。資料多時會自動分成多份 PDF。</p>
+        <p class="muted">{site.名稱}：改善前後照片對照，每頁兩筆。資料多時會自動分成多份 PDF。</p>
         {pending && !running && !prog?.完成 && !pending.完成 && (
           <div class="card warn-box">
             <p>上次的報告還沒產生完（已完成 {pending.已完成份數 || 0} / {pending.總份數 || '?'} 份）。</p>
