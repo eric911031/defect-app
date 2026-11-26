@@ -53,18 +53,31 @@ export const isReadOnly = site => !!site && (site.唯讀 === true || site.啟用
 // 由戶別解析樓層：2A1 → 2F / A1、12B3 → 12F / B3、20F - A2 → 20F / A2、B1A1 → B1 / A1、10樓梯廳 → 10F / 梯廳。
 // 認不出來的（例如「右邊R1F」、純數字 301）回傳 floor = null，畫面放到「其他」。
 export function parseUnit(raw) {
-  const s = String(raw || '').toUpperCase().replace(/\s+/g, '');
+  let s = String(raw || '').toUpperCase().replace(/\s+/g, '').replace(/[－—–~～]/g, '-');
   if (!s) return { floor: null, label: '其他', unit: '' };
+  s = s.replace(/^[A-Z]棟/, ''); // 「C棟R2F」：棟已在棟欄
   let m;
-  // 地下室：B1、B2F、B1-A1、B1FA1（B 後面接數字，再接 F／分隔符號／字母或結尾）
+  // 屋頂：RF、R1F、R2F（排在最高樓層之後）
+  if ((m = s.match(/^R(\d{0,2})F(?:[-_.]|$)?(.*)$/))) {
+    const n = Number(m[1] || 1);
+    return { floor: 1000 + n, label: m[1] ? `R${n}F` : 'RF', unit: m[2] || '' };
+  }
+  // 地下室：B1、B2F、B1-A1、B1FA1
   if ((m = s.match(/^B(\d{1,2})F?(?:[-_.]|(?=[A-Z])|$)(.*)$/))) {
     return { floor: -Number(m[1]), label: `B${Number(m[1])}`, unit: m[2] || '' };
   }
-  // 2A1、12B3、20F-A2、15F、2-1、10樓梯廳、3樓A1
+  // 2A1、12B3、20F-A2、15F、2-1、10樓梯廳、3樓A1、5F廁所
   if ((m = s.match(/^(\d{1,2})(?:F|樓)?(?:[-_.]|(?=[A-Z一-鿿])|$)(.*)$/))) {
     const n = Number(m[1]);
-    // 「2-1」這種沒有 F 的純數字戶號也算樓層；「301」這種全數字不拆
     if (n > 0 && !(/^\d+$/.test(s) && s.length > 2)) return { floor: n, label: `${n}F`, unit: m[2] || '' };
   }
+  // 3～4 位純數字：2301 → 23F / 01、301 → 3F / 01（舊資料常見）
+  if ((m = s.match(/^(\d{1,2})(\d{2})$/)) && Number(m[1]) > 0) {
+    const n = Number(m[1]);
+    return { floor: n, label: `${n}F`, unit: m[2] };
+  }
+  // 描述裡帶樓層：「右邊R1F」「店舖1F夾層」
+  if ((m = s.match(/R(\d{0,2})F/))) { const n = Number(m[1] || 1); return { floor: 1000 + n, label: m[1] ? `R${n}F` : 'RF', unit: s }; }
+  if ((m = s.match(/(\d{1,2})(?:F|樓)/)) && Number(m[1]) > 0) { const n = Number(m[1]); return { floor: n, label: `${n}F`, unit: s }; }
   return { floor: null, label: '其他', unit: s };
 }
