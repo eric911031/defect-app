@@ -8,6 +8,7 @@ export default defineConfig({
     preact(),
     VitePWA({
       registerType: 'autoUpdate',
+      injectRegister: false,
       includeAssets: ['icon-180.png', 'icon.svg'],
       manifest: {
         name: '工地缺失管理',

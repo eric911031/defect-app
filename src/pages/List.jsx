@@ -5,7 +5,7 @@ import { loadDefects, cachedDefects, codeText } from '../data.js';
 import { onSent } from '../queue.js';
 import { go } from '../router.js';
 import { STATUS } from '../config.js';
-import { isReadOnly, parseUnit } from '../util.js';
+import { isReadOnly, parseUnit, detectLetterUnits } from '../util.js';
 import { errText } from '../api.js';
 
 const natural = (a, b) => String(a).localeCompare(String(b), 'zh', { numeric: true });
@@ -39,7 +39,7 @@ export function List() {
   const items = res?.items || [];
   const blds = useMemo(() => [...new Set(items.map(d => d.棟).filter(Boolean))].sort(), [items]);
   // 依「棟 › 樓層 › 戶別」分組；樓層由戶別自動解析（2A1 → 2F）
-  const parsed = useMemo(() => items.map(d => ({ d, p: parseUnit(d.戶別) })), [items]);
+  const parsed = useMemo(() => { const lu = detectLetterUnits(items.map(d => d.戶別)); return items.map(d => ({ d, p: parseUnit(d.戶別, lu) })); }, [items]);
   const floorOpts = useMemo(() => {
     const m = new Map();
     for (const { p } of parsed) m.set(p.label, p.floor);

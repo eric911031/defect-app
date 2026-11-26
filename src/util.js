@@ -52,11 +52,18 @@ export const isReadOnly = site => !!site && (site.唯讀 === true || site.啟用
 
 // 由戶別解析樓層：2A1 → 2F / A1、12B3 → 12F / B3、20F - A2 → 20F / A2、B1A1 → B1 / A1、10樓梯廳 → 10F / 梯廳。
 // 認不出來的（例如「右邊R1F」、純數字 301）回傳 floor = null，畫面放到「其他」。
-export function parseUnit(raw) {
+// letterUnits：這個工地的戶別是「樓層數字＋一個字母」（10B、11F＝11 樓 F 戶），此時結尾的 F 是戶別不是樓層
+export function parseUnit(raw, letterUnits = false) {
   let s = String(raw || '').toUpperCase().replace(/\s+/g, '').replace(/[－—–~～]/g, '-');
   if (!s) return { floor: null, label: '其他', unit: '' };
   s = s.replace(/^[A-Z]棟/, ''); // 「C棟R2F」：棟已在棟欄
   let m;
+  if (letterUnits && (m = s.match(/^(\d{1,2})([A-Z])$/)) && Number(m[1]) > 0) {
+    const n = Number(m[1]);
+    return { floor: n, label: `${n}F`, unit: m[2] };
+  }
+  // 屋頂：R1、R2（沒有 F）
+  if ((m = s.match(/^R(\d{1,2})(?:[-_.]|(?=[\u4e00-\u9fff])|$)(.*)$/))) { const n = Number(m[1]); return { floor: 1000 + n, label: `R${n}F`, unit: m[2] || '' }; }
   // 屋頂：RF、R1F、R2F（排在最高樓層之後）
   if ((m = s.match(/^R(\d{0,2})F(?:[-_.]|$)?(.*)$/))) {
     const n = Number(m[1] || 1);
@@ -77,7 +84,18 @@ export function parseUnit(raw) {
     return { floor: n, label: `${n}F`, unit: m[2] };
   }
   // 描述裡帶樓層：「右邊R1F」「店舖1F夾層」
-  if ((m = s.match(/R(\d{0,2})F/))) { const n = Number(m[1] || 1); return { floor: 1000 + n, label: m[1] ? `R${n}F` : 'RF', unit: s }; }
+  if ((m = s.match(/R(\d{0,2})F/))) { const n = Number(m[1] || 1); return { floor: 1000 + n, label: m[1] ? `R${n}F` : 'RF', unit: s.replace(m[0], '') || '' }; }
   if ((m = s.match(/(\d{1,2})(?:F|樓)/)) && Number(m[1]) > 0) { const n = Number(m[1]); return { floor: n, label: `${n}F`, unit: s }; }
   return { floor: null, label: '其他', unit: s };
+}
+
+// 判斷一批戶別是否屬於「數字＋單一字母」的寫法（安家藏玉、信義嘉品）
+export function detectLetterUnits(units) {
+  let letter = 0, other = 0;
+  for (const u of units) {
+    const s = String(u || '').toUpperCase().replace(/\s+/g, '');
+    if (/^\d{1,2}[A-EG-Z]$/.test(s)) letter++;
+    else if (/^\d{1,2}(F|樓)?[-_.]?[A-Z]\d/.test(s)) other++;
+  }
+  return letter >= 3 && letter > other;
 }
