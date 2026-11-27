@@ -119,6 +119,16 @@ export async function upsertItems(siteId, list) {
   for (const d of list) if (d && d.缺失ID) map.set(d.缺失ID, { ...map.get(d.缺失ID), ...stripPhotos(d) });
   await kv.set(KEY(siteId), { ...old, items: [...map.values()] });
 }
+// 刪除後：從離線資料與各清單快取拿掉這筆
+export async function removeLocal(siteId, id) {
+  const old = await getSiteData(siteId);
+  if (old) await kv.set(KEY(siteId), { ...old, items: old.items.filter(d => d.缺失ID !== id) });
+  for (const st of ['all', '未改善', '待確認', '已結案']) {
+    const k = `defects:${siteId}:${st}`;
+    const c = await kv.get(k).catch(() => null);
+    if (c && c.items) await kv.set(k, { ...c, items: c.items.filter(d => d.缺失ID !== id) });
+  }
+}
 const stripPhotos = d => { const { 改善前照片網址, 改善後照片網址, ...rest } = d; return rest; };
 
 export function approxBytes(v) { try { return new Blob([JSON.stringify(v)]).size; } catch { return JSON.stringify(v).length * 2; } }

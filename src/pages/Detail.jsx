@@ -8,6 +8,7 @@ import { go } from '../router.js';
 import { POSITIONS } from '../config.js';
 import { today, isReadOnly } from '../util.js';
 import { cachedDefect, withPendingFix } from '../data.js';
+import { removeLocal } from '../offline.js';
 
 export function useDefect(id) {
   const [d, setD] = useState(null);
@@ -46,6 +47,7 @@ export function Detail({ id }) {
   const { d, setD, err } = useDefect(id);
   const [rejecting, setRejecting] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const role = user.角色;
   if (err) return <><Header title="缺失" backTo={-1} /><main class="page"><p class="err">{err}</p></main></>;
   if (!d) return <><Header title="缺失" backTo={-1} /><main class="page"><Spinner /></main></>;
@@ -65,6 +67,27 @@ export function Detail({ id }) {
   }
   // 只有「登記」「改善」還在手機上時不能確認／編輯（那筆伺服器上還沒有或還沒到待確認）
   const blocked = d._pending === '登記' || d._pending === '改善';
+  // 刪除：只限管理者、有網路、手機上沒有這筆的待上傳（沒有 ID 的舊列後端也會擋）
+  const canDelete = role === '管理者' && !ro && !d._pending && !d._conflict && !String(d.缺失ID).startsWith('NOID-');
+  async function del() {
+    if (!navigator.onLine) return toast('刪除需要網路，請連線後再試', 'err');
+    const label = `${d.棟 ? d.棟 + '棟 ' : ''}${d.戶別 || ''} ${d.窗號 || ''}`.trim();
+    if (!confirm(`確定刪除這筆缺失？\n${label}${d.代碼 ? ' ' + d.代碼 : ''}\n\n會從試算表刪掉整列。原本內容會留在「操作紀錄」，需要時可以請管理者還原。`)) return;
+    setDeleting(true);
+    try {
+      const data = { 缺失ID: d.缺失ID };
+      if ('更新時間' in d) data.更新時間 = d.更新時間 ?? '';
+      await call('deleteDefect', data).catch(e => { if (e.code !== 'NOT_FOUND') throw e; });
+      await removeLocal(site.工地ID, d.缺失ID).catch(() => {});
+      toast('已刪除', 'ok');
+      go('/list');
+    } catch (e) {
+      if (e.code === 'CONFLICT') {
+        toast('這筆剛被別人改過，請看目前內容再決定要不要刪', 'err', 4500);
+        if (e.目前資料) setD(await withPendingFix(e.目前資料));
+      } else toast('刪除失敗：' + errText(e), 'err', 4500);
+    } finally { setDeleting(false); }
+  }
   return (
     <>
       <Header title="缺失明細" backTo={-1} right={role === '管理者' && !ro && !blocked && <button class="hdr-btn txt" onClick={() => setEditing(true)}>編輯</button>} />
@@ -82,6 +105,7 @@ export function Detail({ id }) {
             <button class="btn primary" onClick={() => review('通過')}>通過</button>
           </>}
         </div>
+        {canDelete && <div class="actions del-row"><button class="btn danger block" disabled={deleting} onClick={del}>{deleting ? '刪除中…' : '刪除這筆'}</button></div>}
       </main>
       {rejecting && <RejectModal onClose={() => setRejecting(false)} onSubmit={r => review('退回', r)} />}
       {editing && <EditModal d={d} onClose={() => setEditing(false)} onSaved={setD} />}

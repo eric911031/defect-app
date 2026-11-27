@@ -229,3 +229,4 @@ select.chip.sel.on { background-color: var(--pri); color: var(--pri-ink); border
 .row-wrap > .side { flex: none; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--bad); font-size: 13px; font-weight: 600; padding: 0 12px; min-width: 76px; line-height: 1.25; }
 .choice { display: grid; gap: 10px; }
 .tag-pending.conflict { background: var(--bad); color: #fff; }
+.del-row { margin-top: 28px; }
