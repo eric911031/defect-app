@@ -73,10 +73,12 @@ export async function removeItem(id) { await queueStore.del(id); await refreshCo
 export async function listItems() { return queueStore.all(); }
 
 export function startAutoSync() {
-  const kick = () => { if (getState().user && !getState().needLogin) flush(); };
-  window.addEventListener('online', () => { setState({ online: true }); kick(); autoUpdate(); });
+  const kick = () => { if (getState().user && !getState().needLogin) return flush(); };
+  // 先補送再更新離線資料，避免剛送出的那筆被誤判為「本機沒有」而改成全量
+  const kickAndUpdate = () => Promise.resolve(kick()).finally(() => autoUpdate());
+  window.addEventListener('online', () => { setState({ online: true }); kickAndUpdate(); });
   window.addEventListener('offline', () => setState({ online: false }));
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { kick(); refreshCount(); autoUpdate(); } });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { refreshCount(); kickAndUpdate(); } });
   setInterval(kick, 60000);
   refreshCount().then(kick);
 }

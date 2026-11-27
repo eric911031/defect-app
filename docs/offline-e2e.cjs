@@ -1,4 +1,5 @@
 // 離線流程 E2E：iPhone 視窗 + 示範資料（mock）+ context.setOffline
+// 執行：npm run build && npx vite preview --port 4173，另開終端機 node docs/offline-e2e.cjs <截圖資料夾>
 const { chromium, devices } = require('playwright');
 const path = require('path');
 const OUT = process.argv[2];
@@ -132,6 +133,16 @@ const check = (name, ok, extra = '') => { results.push(`${ok ? 'PASS' : 'FAIL'} 
   const thumbsOnline = await page.locator('.thumb.off').count();
   check('恢復網路後照片重新載入', thumbsOnline === 0, `仍離線 ${thumbsOnline}`);
   await shot('offline-08-back-online');
+
+  // 增量更新：離線資料應含新登記、改善後狀態，且沒有重複
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await wait(2500);
+  const od = await page.evaluate(() => new Promise(res => {
+    const r = indexedDB.open('defect-app');
+    r.onsuccess = () => { const g = r.result.transaction('kv').objectStore('kv').get('offline:DY'); g.onsuccess = () => res(g.result); };
+  }));
+  const idsU = new Set(od.items.map(d => d.缺失ID));
+  check('增量更新後離線資料正確', od.inc === true && od.items.length === 46 && idsU.size === 46 && od.items.find(d => d.缺失ID === 'seed-DY-1').狀態 === '待確認' && od.items.some(d => d.備註 === '離線測試登記'), `${od.items.length} 筆, inc=${od.inc}`);
 
   // 8. 離線＋登入資料過期：不要求重新登入
   await page.evaluate(() => { const a = JSON.parse(localStorage.getItem('auth')); a.exp = Date.now() - 1000; localStorage.setItem('auth', JSON.stringify(a)); });

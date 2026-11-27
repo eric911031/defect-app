@@ -17,7 +17,7 @@ export async function getSiteData(siteId) { try { return await kv.get(KEY(siteId
 export async function getMeta() { try { return (await kv.get(META)) || null; } catch { return null; } }
 
 async function fetchAll(siteId, since, onPage) {
-  const per = 1000; let page = 1, items = [], serverTime = null, removedIds = null;
+  const per = 1000; let page = 1, items = [], serverTime = null, removedIds = null, ids = null;
   for (;;) {
     const q = { 工地ID: siteId, 頁: page, 每頁: per };
     if (since) q.更新於之後 = since;
@@ -26,6 +26,7 @@ async function fetchAll(siteId, since, onPage) {
     if (!Array.isArray(r)) {
       if (r.serverTime && !serverTime) serverTime = r.serverTime;
       if (Array.isArray(r.removedIds)) removedIds = (removedIds || []).concat(r.removedIds);
+      if (Array.isArray(r.ids) && !ids) ids = r.ids; // 增量時：此工地目前看得到的全部 ID（不分頁）
     }
     items = items.concat(batch);
     onPage && onPage(items.length, Array.isArray(r) ? null : r.total);
@@ -33,7 +34,7 @@ async function fetchAll(siteId, since, onPage) {
     if (batch.length < per || items.length >= total) break;
     page++;
   }
-  return { items, serverTime, removedIds };
+  return { items, serverTime, removedIds, ids };
 }
 
 // 下載（或更新）一個工地。mode: 'full' | 'auto'
@@ -48,6 +49,12 @@ export async function syncSite(siteId, { mode = 'auto', onPage } = {}) {
       const map = new Map(old.items.map(d => [d.缺失ID, d]));
       for (const d of r.items) map.set(d.缺失ID, d);
       for (const id of r.removedIds || []) map.delete(id);
+      if (r.ids) {
+        // 本機沒有的 ID（例如 AppSheet 新增、沒更新「更新時間」）：改成全量
+        if (r.ids.some(id => !map.has(id))) return syncSite(siteId, { mode: 'full', onPage });
+        const keep = new Set(r.ids);
+        for (const id of [...map.keys()]) if (!keep.has(id)) map.delete(id);
+      }
       let items = [...map.values()];
       if (fixer) items = items.filter(d => d.狀態 === '未改善');
       const v = { items, at: now, fullAt: old.fullAt, serverTime: r.serverTime, inc: true };
@@ -89,15 +96,16 @@ let autoRunning = null;
 export function autoUpdate() {
   if (autoRunning || !navigator.onLine) return autoRunning;
   autoRunning = (async () => {
-    const meta = await getMeta();
-    if (!meta || !meta.at) return null;
-    if (meta.email && meta.email !== getState().user?.Email) return null;
-    const anyInc = await Promise.all(Object.keys(meta.sites || {}).map(getSiteData)).then(l => l.some(x => x?.serverTime));
-    if (!anyInc && Date.now() - meta.at < AUTO_FULL_GAP) return null;
-    setState({ offlineSyncing: true });
-    try { return await downloadAll({ full: false }); }
-    catch { return null; }
-    finally { setState({ offlineSyncing: false }); autoRunning = null; }
+    try {
+      const meta = await getMeta();
+      if (!meta || !meta.at) return null;
+      if (meta.email && meta.email !== getState().user?.Email) return null;
+      const anyInc = await Promise.all(Object.keys(meta.sites || {}).map(getSiteData)).then(l => l.some(x => x?.serverTime));
+      if (!anyInc && Date.now() - meta.at < AUTO_FULL_GAP) return null;
+      setState({ offlineSyncing: true });
+      return await downloadAll({ full: false });
+    } catch { return null; }
+    finally { if (getState().offlineSyncing) setState({ offlineSyncing: false }); autoRunning = null; }
   })();
   return autoRunning;
 }
