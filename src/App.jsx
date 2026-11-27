@@ -3,6 +3,8 @@ import { useStore, setState, getState, toast } from './store.js';
 import { useRoute, go } from './router.js';
 import { auth } from './auth.js';
 import { kv } from './db.js';
+import { DEV_TOOLS } from './config.js';
+import { switchUser } from './session.js';
 import { loadMe, loadCodes } from './data.js';
 import { startAutoSync, flush } from './queue.js';
 import { autoUpdate, getMeta } from './offline.js';
@@ -33,10 +35,13 @@ export function App() {
     setBoot('loading');
     if (!auth.usable()) { setBoot('login'); return; }
     // 有快取時先直接顯示畫面，背景再向後端更新（Apps Script 冷啟動要 1–3 秒）
-    const cachedMe = await kv.get('me').catch(() => null);
+    let cachedMe = await kv.get('me').catch(() => null);
+    // 快取是別人的（換帳號登入）：不用，改等後端回應
+    const authEmail = auth.current()?.email;
+    if (cachedMe && authEmail && cachedMe.Email && cachedMe.Email.toLowerCase() !== authEmail.toLowerCase()) cachedMe = null;
     if (cachedMe && !needLogin) {
       await enter(cachedMe);
-      loadMe().then(me => { if (me.sessionToken) auth.setSession(me.sessionToken, me.sessionExp); setState({ user: me }); const s = getState().site; if (s) { const ns = me.工地?.find(x => x.工地ID === s.工地ID); if (ns) setState({ site: ns }); } }).catch(e => { if (e.code === 'UNAUTHENTICATED' || e.code === 'FORBIDDEN') handleErr(e); });
+      loadMe().then(async me => { if (me.Email !== cachedMe.Email) { if (me.sessionToken) auth.setSession(me.sessionToken, me.sessionExp); await enter(me); return; } if (me.sessionToken) auth.setSession(me.sessionToken, me.sessionExp); setState({ user: me }); const s = getState().site; if (s) { const ns = me.工地?.find(x => x.工地ID === s.工地ID); if (ns) setState({ site: ns }); } }).catch(e => { if (e.code === 'UNAUTHENTICATED' || e.code === 'FORBIDDEN') handleErr(e); });
       return;
     }
     try {
@@ -46,6 +51,7 @@ export function App() {
     } catch (e) { handleErr(e); }
   }
   async function enter(me) {
+    await switchUser(me); // 換成不同帳號登入：清掉前一人的快取（S5）
     setState({ user: me, needLogin: false });
     loadCodes();
     const sid = await kv.get('siteId');
@@ -69,7 +75,8 @@ export function App() {
   }
   useEffect(() => { start(); }, []);
 
-  if (route.path === '/settings') return <><Settings /><Toast /></>;
+  // S3：設定頁在開發／示範建置隨時可開；正式建置只有管理者登入後才能開
+  if (route.path === '/settings' && DEV_TOOLS) return <><Settings /><Toast /></>;
   if (boot === 'loading') return <div class="boot"><Spinner label="啟動中…" /></div>;
   if (boot === 'login' || needLogin || (boot === 'ready' && !user)) return <><Login expired={needLogin || (auth.current()?.expired && !auth.current()?.sessionToken)} onLogin={start} />{bootErr && <p class="err center">{bootErr}</p>}<Toast /></>;
   if (boot === 'error') return <div class="boot"><p class="err">{bootErr}</p><button class="btn" onClick={start}>重試</button></div>;
@@ -88,6 +95,7 @@ export function App() {
     case 'manage': page = user.角色 === '管理者' ? <Manage /> : null; break;
     case 'queue': page = <Queue />; break;
     case 'more': page = <More />; break;
+    case 'settings': page = user.角色 === '管理者' ? <Settings /> : null; break;
     case 'help': page = <Help />; break;
     default: page = null;
   }

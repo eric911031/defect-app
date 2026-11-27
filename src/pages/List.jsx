@@ -123,7 +123,7 @@ export function DefectRow({ d }) {
       <button class="row defect" onClick={() => go('/defect/' + encodeURIComponent(d.缺失ID))}>
         <Thumb url={d.改善前縮圖網址} fileId={d.改善前照片ID} />
         <span class="dinfo">
-          {d._pending && <span class="tag-pending">待上傳・{d._pending}</span>}
+          {d._pending && <span class={'tag-pending' + (d._conflict ? ' conflict' : '')}>{d._conflict ? '衝突・請處理' : '待上傳・' + d._pending}</span>}
           <span class="l1"><b>{d.窗號 || '—'}</b>{d.順序 ? <small> #{d.順序}</small> : null} {d.代碼 && <b class="code">{d.代碼}</b>} {text || (!d.代碼 && d.備註)}</span>
           {d.備註 && (d.代碼 || text) && <span class="l2">{d.備註}</span>}
           {d.退回原因 && d.狀態 === '未改善' && <span class="l2 bad">退回：{d.退回原因}</span>}

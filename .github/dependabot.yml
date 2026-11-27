@@ -1,0 +1,13 @@
+# 每週檢查一次套件與 GitHub Actions 的更新（含安全性更新），以 PR 提出，合併前請確認建置正常。
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: weekly, day: monday, time: "06:00", timezone: Asia/Taipei }
+    open-pull-requests-limit: 5
+    groups:
+      build-tools:
+        patterns: ["vite", "vite-plugin-pwa", "@preact/*", "preact"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly, day: monday, time: "06:00", timezone: Asia/Taipei }

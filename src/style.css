@@ -215,3 +215,17 @@ select.chip.sel.on { background-color: var(--pri); color: var(--pri-ink); border
 .dl-sites li { display: flex; justify-content: space-between; padding: 3px 0; border-top: 1px solid var(--line); }
 .asof { font-size: 13px; color: var(--muted); margin: 4px 0 8px; }
 .asof.off { color: var(--warn-ink); background: var(--warn-bg); padding: 6px 10px; border-radius: 8px; }
+
+/* ---- SO-S：衝突、登出、名單管理 ---- */
+.sec-title { font-size: 15px; margin: 14px 4px 8px; }
+.card.conflict { border: 1px solid var(--bad); }
+.cmp { width: 100%; border-collapse: collapse; font-size: 14px; margin: 8px 0; table-layout: fixed; }
+.cmp th, .cmp td { text-align: left; padding: 6px 6px; border-bottom: 1px solid var(--line); vertical-align: top; word-break: break-word; }
+.cmp thead th { color: var(--ink2); font-weight: 600; font-size: 13px; }
+.cmp tbody th { width: 26%; color: var(--ink2); font-weight: 600; }
+.cmp tr.diff td { background: var(--warn-bg); color: var(--warn-ink); }
+.row-wrap { display: flex; align-items: stretch; border-bottom: 1px solid var(--line); background: var(--card); }
+.row-wrap > .row { flex: 1; border-bottom: 0; min-width: 0; }
+.row-wrap > .side { flex: none; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--bad); font-size: 13px; font-weight: 600; padding: 0 12px; min-width: 76px; line-height: 1.25; }
+.choice { display: grid; gap: 10px; }
+.tag-pending.conflict { background: var(--bad); color: #fff; }

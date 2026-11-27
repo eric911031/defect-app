@@ -1,5 +1,5 @@
 // 離線流程 E2E：iPhone 視窗 + 示範資料（mock）+ context.setOffline
-// 執行：npm run build && npx vite preview --port 4173，另開終端機 node docs/offline-e2e.cjs <截圖資料夾>
+// 執行：npm run build:demo && npx vite preview --outDir dist-demo --port 4173，另開終端機 node docs/offline-e2e.cjs <截圖資料夾>
 const { chromium, devices } = require('playwright');
 const path = require('path');
 const OUT = process.argv[2];

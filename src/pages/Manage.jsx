@@ -22,6 +22,7 @@ const SCHEMA = {
 const isOn = v => v === true || String(v).toUpperCase() === 'TRUE' || v === '是';
 
 export function Manage() {
+  const { user } = useStore();
   const [tab, setTab] = useState(() => sessionStorage.getItem('mgTab') || '使用者');
   const [rows, setRows] = useState(null);
   const [err, setErr] = useState('');
@@ -30,6 +31,17 @@ export function Manage() {
   const sc = SCHEMA[tab];
   function load() { setRows(null); setErr(''); call('admin.list', { 分頁: tab }).then(setRows).catch(e => setErr(errText(e))); }
   useEffect(load, [tab]);
+  // S1：強制這個人所有裝置重新登入（手機遺失、離職時用）
+  async function revoke(r) {
+    if (!navigator.onLine) return toast('需要網路才能強制重新登入', 'err');
+    const self = r.Email === user.Email;
+    if (!confirm(`強制「${r.姓名 || r.Email}」所有裝置重新登入？\n\n對方下次使用時要重新用 Google 登入，手機上待上傳的資料會保留，重新登入後自動補送。${self ? '\n\n注意：這是你自己的帳號，這支手機也會被登出。' : ''}`)) return;
+    try {
+      await call('admin.revokeUser', { Email: r.Email });
+      toast(`已要求 ${r.姓名 || r.Email} 重新登入`, 'ok');
+      load();
+    } catch (e) { toast(errText(e), 'err'); }
+  }
   const k = q.trim().toUpperCase();
   const shown = (rows || []).filter(r => !k || JSON.stringify(r).toUpperCase().includes(k));
   return (
@@ -45,10 +57,11 @@ export function Manage() {
         {!rows && !err && <Spinner />}
         <ul class="list">
           {shown.map(r => (
-            <li><button class={'row' + (isOn(r.啟用) ? '' : ' disabled')} onClick={() => setEdit(r)}>
+            <li class={tab === '使用者' ? 'row-wrap' : ''}><button class={'row' + (isOn(r.啟用) ? '' : ' disabled')} onClick={() => setEdit(r)}>
               <span class="dinfo"><b>{sc.title(r)}</b><small>{sc.sub(r)}</small></span>
               {!isOn(r.啟用) && <span class="pill">停用</span>}
-            </button></li>
+            </button>
+            {tab === '使用者' && <button class="side" onClick={() => revoke(r)} aria-label={`強制 ${r.Email} 重新登入`}>強制重新登入</button>}</li>
           ))}
         </ul>
       </main>

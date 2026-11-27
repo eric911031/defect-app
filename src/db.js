@@ -45,5 +45,6 @@ export const queueStore = {
     return items.sort((a, b) => a.createdAt - b.createdAt);
   },
   async put(item) { return tx('queue', 'readwrite', s => { s.put(item); }); },
-  async del(id) { return tx('queue', 'readwrite', s => { s.delete(id); }); }
+  async del(id) { return tx('queue', 'readwrite', s => { s.delete(id); }); },
+  async get(id) { const db = await open(); return reqP(db.transaction('queue').objectStore('queue').get(id)); }
 };

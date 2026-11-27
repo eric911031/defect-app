@@ -5,11 +5,20 @@ Vite + Preact + vite-plugin-pwa。以 iPhone Safari 為主要對象，可「加�
 ## 開發
 ```bash
 npm install
-npm run dev        # http://localhost:5173 ，沒設 VITE_API_URL 時自動用示範資料
-npm run build      # 輸出到 dist/
-npm run preview    # http://localhost:4173 測試建置結果（含 Service Worker）
+npm run dev         # http://localhost:5173 ，「設定」頁可切換示範資料
+npm run build       # 正式建置，輸出到 dist/（沒有示範資料、設定頁只有管理者能開、含 CSP）
+npm run build:demo  # 示範建置，輸出到 dist-demo/（可用示範資料，E2E 測試用）
+npm run preview     # http://localhost:4173 測試建置結果（含 Service Worker）
 ```
-設定：複製 `.env.example` 為 `.env.local`，或在 App 的「設定」頁填後端網址與用戶端 ID（存在該瀏覽器，方便測試）。
+設定：複製 `.env.example` 為 `.env.local`，或在 App 的「設定」頁填後端網址與用戶端 ID（正式版只有管理者能開；後端網址只接受 `https://script.google.com/macros/s/…/exec`）。
+
+## 測試
+- `docs/offline-e2e.cjs`：離線流程（`npm run build:demo && npx vite preview --outDir dist-demo --port 4173`）。
+- `docs/security-e2e.cjs`：安全、離線確認／退回／編輯、衝突、登出（另需 `npm run build && npx vite preview --port 4174`）。
+
+## 安全
+- `index.html` 的 CSP 在建置時加入（`vite.config.js`）。新增外部網址（圖片、API）時要一起改 CSP。
+- GitHub Actions 固定到 commit SHA，`.github/dependabot.yml` 每週提出套件與 Actions 更新。
 
 ## 結構
 | 檔案 | 用途 |
