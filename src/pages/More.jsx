@@ -2,18 +2,23 @@ import { useEffect, useState } from 'preact/hooks';
 import { downloadAll, getMeta, offlineSites, fmtBytes, fmtDateTime } from '../offline.js';
 import { errText } from '../api.js';
 import { useStore, setState, toast } from '../store.js';
-import { Header } from '../components.jsx';
+import { Header, Modal } from '../components.jsx';
 import { auth } from '../auth.js';
-import { config, VERSION } from '../config.js';
+import { config, VERSION, DEV_TOOLS, validApiUrl, validClientId } from '../config.js';
 import { kv } from '../db.js';
 import { go } from '../router.js';
+import { flush } from '../queue.js';
+import { logout, myPending } from '../session.js';
 
 export function More() {
   const { user, site, pending } = useStore();
   const admin = user.角色 === '管理者';
-  function logout() {
-    if (pending && !confirm(`還有 ${pending} 筆待上傳，登出後會保留在手機，下次登入再上傳。確定登出？`)) return;
-    auth.logout(); kv.clear().catch(() => {}); setState({ user: null }); go('/');
+  const [ask, setAsk] = useState(null); // 有待上傳時的登出選擇
+  async function doLogout() {
+    const mine = await myPending();
+    if (mine.length) { setAsk(mine.length); return; }
+    if (!confirm('確定登出？')) return;
+    await logout(); go('/');
   }
   return (
     <>
@@ -27,12 +32,44 @@ export function More() {
           {admin && <li><a class="row" href="#/report">產生 PDF 報告</a></li>}
           {admin && <li><a class="row" href="#/manage">名單管理（工地、使用者、代碼）</a></li>}
           <li><a class="row" href="#/help">加到主畫面說明</a></li>
-          <li><a class="row" href="#/settings">設定</a></li>
-          <li><button class="row bad" onClick={logout}>登出</button></li>
+          {(admin || DEV_TOOLS) && <li><a class="row" href="#/settings">設定</a></li>}
+          <li><button class="row bad" onClick={doLogout}>登出</button></li>
         </ul>
         <p class="muted small center">版本 {VERSION}{config.mock ? '・示範模式' : ''}</p>
       </main>
+      {ask && <LogoutModal n={ask} onClose={() => setAsk(null)} />}
     </>
+  );
+}
+
+// S5：登出時還有待上傳 → 上傳後登出，或放棄並清除
+function LogoutModal({ n, onClose }) {
+  const { online, syncing } = useStore();
+  const [busy, setBusy] = useState('');
+  async function uploadThenLogout() {
+    setBusy('up');
+    await flush({ includeFailed: true });
+    const left = (await myPending()).length;
+    if (left) {
+      toast(`還有 ${left} 筆沒有上傳成功（${online ? '請到「待上傳」查看原因' : '目前沒有網路'}），所以沒有登出。`, 'err', 5000);
+      setBusy(''); onClose(); return;
+    }
+    await logout(); go('/');
+  }
+  async function discard() {
+    if (!confirm(`放棄 ${n} 筆待上傳資料並登出？\n這些登記或改善（含照片）會從手機刪除，無法復原。`)) return;
+    setBusy('discard');
+    await logout({ discard: true }); go('/');
+  }
+  return (
+    <Modal title="還有資料沒有上傳" onClose={busy ? () => {} : onClose}>
+      <p>這支手機上還有 <b>{n}</b> 筆待上傳。登出前要怎麼處理？</p>
+      <div class="choice">
+        <button class="btn primary block" disabled={!!busy || !online || syncing} onClick={uploadThenLogout}>{busy === 'up' ? '上傳中…' : online ? '上傳後登出' : '上傳後登出（目前沒有網路）'}</button>
+        <button class="btn danger block" disabled={!!busy} onClick={discard}>放棄並清除，直接登出</button>
+        <button class="btn ghost block" disabled={!!busy} onClick={onClose}>取消</button>
+      </div>
+    </Modal>
   );
 }
 
@@ -52,32 +89,43 @@ export function Help() {
   );
 }
 
+// S3：正式建置只有管理者能開（App.jsx 擋）；後端網址只接受 Apps Script 網址
 export function Settings() {
   const [api, setApi] = useState(localStorage.getItem('cfg.apiUrl') || '');
   const [cid, setCid] = useState(localStorage.getItem('cfg.clientId') || '');
-  const [mock, setMock] = useState(config.mock && localStorage.getItem('cfg.mock') === '1');
+  const [mock, setMock] = useState(config.mock);
   const [off, setOff] = useState(config.mockOffline);
   const [mgps, setMgps] = useState(config.mockGpsAtSite);
+  const apiBad = api.trim() && !validApiUrl(api);
+  const cidBad = cid.trim() && !validClientId(cid);
   function save() {
+    if (apiBad) return toast('後端網址必須是 https://script.google.com/macros/s/…/exec', 'err', 4000);
+    if (cidBad) return toast('Google 用戶端 ID 格式不對（應為 數字-英數.apps.googleusercontent.com）', 'err', 4000);
+    const changed = api.trim() !== (localStorage.getItem('cfg.apiUrl') || '') || cid.trim() !== (localStorage.getItem('cfg.clientId') || '') || mock !== config.mock;
     config.set('apiUrl', api.trim()); config.set('clientId', cid.trim());
-    config.set('mock', mock ? '1' : ''); config.set('mockOffline', off ? '1' : ''); config.set('mockGps', mgps ? '' : '0');
+    if (DEV_TOOLS) { config.set('mock', mock ? '1' : ''); config.set('mockOffline', off ? '1' : ''); config.set('mockGps', mgps ? '' : '0'); }
     kv.clear().catch(() => {});
-    toast('已儲存，重新載入中', 'ok');
-    setTimeout(() => location.reload(), 600);
+    if (changed) auth.logout(); // 換後端：登入憑證不帶到新後端，重新登入
+    toast(changed ? '已儲存，請重新登入' : '已儲存，重新載入中', 'ok');
+    setTimeout(() => { location.hash = '#/'; location.reload(); }, 600);
   }
   async function clearCache() { await kv.clear(); toast('已清除快取（待上傳資料保留）', 'ok'); }
   return (
     <>
       <Header title="設定" backTo={-1} />
       <main class="page form">
-        <p class="muted small">一般使用者不需要改這裡。留白代表用預設值{import.meta.env.VITE_API_URL ? '' : '（目前沒有預設後端，會使用示範資料）'}。</p>
-        <label class="fld"><span>後端網址（Apps Script Web App）</span><input value={api} onInput={e => setApi(e.target.value)} placeholder="https://script.google.com/macros/s/…/exec" autocapitalize="off" /></label>
-        <label class="fld"><span>Google 用戶端 ID</span><input value={cid} onInput={e => setCid(e.target.value)} placeholder="….apps.googleusercontent.com" autocapitalize="off" /></label>
-        <label class="sw"><input type="checkbox" checked={mock} onChange={e => setMock(e.target.checked)} /> 強制使用示範資料</label>
-        <fieldset class="card"><legend>示範模式測試選項</legend>
-          <label class="sw"><input type="checkbox" checked={off} onChange={e => setOff(e.target.checked)} /> 模擬沒有網路（測試離線佇列）</label>
-          <label class="sw"><input type="checkbox" checked={mgps} onChange={e => setMgps(e.target.checked)} /> GPS 直接用工地座標（關閉則用真實定位）</label>
-        </fieldset>
+        <p class="muted small">一般情況不需要改這裡。留白代表用預設值。改了後端網址或用戶端 ID 會登出，需要重新登入。</p>
+        <label class="fld"><span>後端網址（Apps Script Web App）</span><input value={api} onInput={e => setApi(e.target.value)} placeholder="https://script.google.com/macros/s/…/exec" autocapitalize="off" />
+          {apiBad && <small class="bad">只接受 https://script.google.com/macros/s/ 開頭、/exec 結尾的網址</small>}</label>
+        <label class="fld"><span>Google 用戶端 ID</span><input value={cid} onInput={e => setCid(e.target.value)} placeholder="….apps.googleusercontent.com" autocapitalize="off" />
+          {cidBad && <small class="bad">格式應為 數字-英數.apps.googleusercontent.com</small>}</label>
+        {DEV_TOOLS && <>
+          <label class="sw"><input type="checkbox" checked={mock} onChange={e => setMock(e.target.checked)} /> 使用示範資料（只有開發版有這個選項）</label>
+          <fieldset class="card"><legend>示範模式測試選項</legend>
+            <label class="sw"><input type="checkbox" checked={off} onChange={e => setOff(e.target.checked)} /> 模擬沒有網路（測試離線佇列）</label>
+            <label class="sw"><input type="checkbox" checked={mgps} onChange={e => setMgps(e.target.checked)} /> GPS 直接用工地座標（關閉則用真實定位）</label>
+          </fieldset>
+        </>}
         <button class="btn primary block" onClick={save}>儲存</button>
         <button class="btn ghost block" onClick={clearCache}>清除快取資料</button>
       </main>

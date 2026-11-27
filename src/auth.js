@@ -2,7 +2,7 @@
 // 後端若在 me 回傳 sessionToken，之後改用它，避免每小時重新登入。
 // 新版後端的 sessionToken 不設時效（sessionExp 為空）：沒有 exp 就視為不過期，
 // 只有後端回 UNAUTHENTICATED（強制登出、停用帳號）才要求重新登入。
-import { config } from './config.js';
+import { config, DEV_TOOLS } from './config.js';
 
 const KEY = 'auth';
 function read() { try { return JSON.parse(localStorage.getItem(KEY) || 'null'); } catch { return null; } }
@@ -19,6 +19,7 @@ export const auth = {
   current() {
     const a = read();
     if (!a) return null;
+    if (a.kind === 'mock' && !DEV_TOOLS) return null; // 正式建置不接受示範登入
     if (a.exp && a.exp < Date.now() + 60e3) return { ...a, expired: true };
     return a;
   },

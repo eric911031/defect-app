@@ -71,11 +71,22 @@ function reportStep(j) {
 const wait = ms => new Promise(r => setTimeout(r, ms));
 const codeMap = () => Object.fromEntries(db.缺失代碼.map(c => [c.代碼, c]));
 
+// 示範用憑證：選角色登入時 token 是 Email（相當於 Google 登入，不檢查版本）；
+// me 換發 `s1.<Email>.<版本>`（相當於 sessionToken，版本不符就失效）
 function userOf(token) {
-  const u = db.使用者.find(u => u.Email === token && u.啟用 !== false);
+  const m = /^s1\.(.+)\.(\d+)$/.exec(token || '');
+  const email = m ? m[1] : token;
+  const u = db.使用者.find(u => u.Email === email && u.啟用 !== false);
   if (!u) throw new ApiError('UNAUTHENTICATED', '請重新登入');
+  if (m && +m[2] !== (+u.憑證版本 || 1)) throw new ApiError('UNAUTHENTICATED', '登入已失效（已登出或管理者要求重新登入），請重新登入');
   return u;
 }
+function conflictCheck(u, d, data) {
+  if (!('更新時間' in data) || data.更新時間 === d.更新時間) return;
+  throw new ApiError('CONFLICT', '這筆資料已被別人修改', false, { 目前資料: view(d) });
+}
+// 測試用：讓 Playwright 可以模擬「別人改了資料」
+if (typeof window !== 'undefined') window.__mockDb = db;
 function sitesOf(u) {
   const allow = String(u.可用工地 || '');
   return db.工地.filter(s => (s.啟用 !== false || u.角色 === '管理者') && (allow === '全部' || allow.split(',').map(x => x.trim()).includes(s.工地ID)));
@@ -105,7 +116,15 @@ export async function handle(action, data = {}, token) {
   await wait(250 + Math.random() * 250);
   const u = userOf(token);
   switch (action) {
-    case 'me': return { Email: u.Email, 姓名: u.姓名, 公司: u.公司, 角色: u.角色, 工地: sitesOf(u) };
+    case 'me': return { Email: u.Email, 姓名: u.姓名, 公司: u.公司, 角色: u.角色, 工地: sitesOf(u), sessionToken: `s1.${u.Email}.${+u.憑證版本 || 1}`, sessionExp: null };
+    case 'logout': u.憑證版本 = (+u.憑證版本 || 1) + 1; return { 已登出: true };
+    case 'admin.revokeUser': {
+      need(u, '管理者');
+      const t = db.使用者.find(x => x.Email === data.Email);
+      if (!t) throw new ApiError('NOT_FOUND', '名單中沒有這個人');
+      t.憑證版本 = (+t.憑證版本 || 1) + 1;
+      return { Email: t.Email, 憑證版本: t.憑證版本 };
+    }
     case 'photos': { const out = {}; for (const id of data.檔案ID || []) out[id] = db.photos[id] || null; return out; }
     case 'codes': return db.缺失代碼.filter(c => c.啟用 !== false);
     case 'listDefects': {
@@ -144,6 +163,8 @@ export async function handle(action, data = {}, token) {
       need(u, '改善者', '管理者');
       const d = find(data.缺失ID); const site = siteCheck(u, d.工地ID);
       if (d.狀態 === '待確認' && d.改善人 === u.Email) return view(d); // 重送
+      if (d.狀態 === '已結案') throw new ApiError('CONFLICT', '這筆已經結案', false, { 目前資料: view(d) });
+      conflictCheck(u, d, data);
       if (d.狀態 !== '未改善') throw new ApiError('INVALID_STATE', `目前狀態是「${d.狀態}」，不能回報改善`);
       gpsCheck(site, data.GPS);
       db.photos[d.缺失ID + '後'] = 'data:image/jpeg;base64,' + data.改善後照片;
@@ -154,6 +175,8 @@ export async function handle(action, data = {}, token) {
     case 'review': {
       need(u, '管理者');
       const d = find(data.缺失ID);
+      if (data.結果 === '通過' && d.狀態 === '已結案' && d.確認人 === u.Email) return view(d); // 重送
+      conflictCheck(u, d, data);
       if (d.狀態 !== '待確認') throw new ApiError('INVALID_STATE', `目前狀態是「${d.狀態}」`);
       if (data.結果 === '通過') Object.assign(d, { 狀態: '已結案', 確認人: u.Email, 確認日期: today(), 退回原因: '' });
       else if (data.結果 === '退回') {
@@ -166,6 +189,7 @@ export async function handle(action, data = {}, token) {
     case 'updateDefect': {
       need(u, '管理者');
       const d = find(data.缺失ID);
+      conflictCheck(u, d, data);
       const allowed = ['棟', '戶別', '窗號', '順序', '長度', '位置', '代碼', '備註'];
       for (const k of allowed) if (data.欄位 && k in data.欄位) d[k] = k === '戶別' ? normUnit(data.欄位[k]) : k === '代碼' ? normCode(data.欄位[k]) : data.欄位[k];
       d.更新時間 = now();

@@ -3,7 +3,7 @@ import { useStore, toast } from '../store.js';
 import { Header, Spinner, StatusPill, PhotoInput, GpsLine, useGps, Modal, CodePicker, Chips, Thumb } from '../components.jsx';
 import { call, errText } from '../api.js';
 import { codeText } from '../data.js';
-import { enqueue, flush } from '../queue.js';
+import { enqueue, flush, enqueueAndSend } from '../queue.js';
 import { go } from '../router.js';
 import { POSITIONS } from '../config.js';
 import { today, isReadOnly } from '../util.js';
@@ -58,21 +58,26 @@ export function Detail({ id }) {
   ].filter(Boolean);
 
   async function review(結果, 退回原因) {
-    try { setD(await call('review', { 缺失ID: id, 結果, 退回原因 })); toast(結果 === '通過' ? '已結案' : '已退回', 'ok'); setRejecting(false); }
-    catch (e) { toast(errText(e), 'err'); }
+    setRejecting(false);
+    const r = await sendReview(d, 結果, 退回原因);
+    if (r.result) setD(await withPendingFix(r.result));
+    else { const c = await cachedDefect(id); if (c) setD(c); }
   }
+  // 只有「登記」「改善」還在手機上時不能確認／編輯（那筆伺服器上還沒有或還沒到待確認）
+  const blocked = d._pending === '登記' || d._pending === '改善';
   return (
     <>
-      <Header title="缺失明細" backTo={-1} right={role === '管理者' && !ro && !d._pending && !d.離線 && <button class="hdr-btn txt" onClick={() => setEditing(true)}>編輯</button>} />
+      <Header title="缺失明細" backTo={-1} right={role === '管理者' && !ro && !blocked && <button class="hdr-btn txt" onClick={() => setEditing(true)}>編輯</button>} />
       <main class="page">
         <div class="dhead"><StatusPill s={d.狀態} /><b>{d.棟 ? d.棟 + '棟 ' : ''}{d.戶別} {d.窗號}</b></div>
-        {d._pending && <p class="warn small">這筆{d._pending === '登記' ? '登記' : '改善回報'}還在手機上，有網路時會自動上傳。</p>}
+        {d._conflict ? <p class="err small">這筆在你修改之前已被別人改過，請到 <a href="#/queue">待上傳</a> 選擇要用哪個版本。</p>
+          : d._pending && <p class="warn small">這筆的{PENDING_TEXT[d._pending] || d._pending}還在手機上，有網路時會自動上傳。</p>}
         {d.離線 && !d._pending && <p class="warn small">離線中，顯示上次下載的資料{navigator.onLine ? '' : '；照片需連線才能顯示'}</p>}
         <Photos d={d} />
         <dl class="kv">{rows.map(([k, v]) => <><dt>{k}</dt><dd class={k === '退回原因' ? 'bad' : ''}>{v}</dd></>)}</dl>
         <div class="actions">
-          {!ro && !d._pending && d.狀態 === '未改善' && (role === '改善者' || role === '管理者') && <button class="btn primary block" onClick={() => go('/fix/' + encodeURIComponent(id))}>改善回報</button>}
-          {!ro && !d._pending && !d.離線 && d.狀態 === '待確認' && role === '管理者' && <>
+          {!ro && !blocked && d.狀態 === '未改善' && (role === '改善者' || role === '管理者') && <button class="btn primary block" onClick={() => go('/fix/' + encodeURIComponent(id))}>改善回報</button>}
+          {!ro && !blocked && d.狀態 === '待確認' && role === '管理者' && <>
             <button class="btn danger" onClick={() => setRejecting(true)}>退回</button>
             <button class="btn primary" onClick={() => review('通過')}>通過</button>
           </>}
@@ -82,6 +87,21 @@ export function Detail({ id }) {
       {editing && <EditModal d={d} onClose={() => setEditing(false)} onSaved={setD} />}
     </>
   );
+}
+
+const PENDING_TEXT = { 登記: '登記', 改善: '改善回報', 編輯: '編輯', 確認: '確認（通過）', 退回: '退回' };
+
+// O4：確認／退回一律先存手機再送；帶上看到時的「更新時間」做衝突檢查
+export async function sendReview(d, 結果, 退回原因) {
+  const data = { 缺失ID: d.缺失ID, 結果, 退回原因 };
+  if ('更新時間' in d) data.更新時間 = d.更新時間 ?? '';
+  const r = await enqueueAndSend('review', data, `${結果} ${d.棟 ? d.棟 + '棟 ' : ''}${d.戶別 || ''} ${d.窗號 || ''}`.trim());
+  const label = 結果 === '通過' ? '已結案' : '已退回';
+  if (r.result !== undefined) toast(label, 'ok');
+  else if (r.conflict) toast('這筆剛被別人改過，請到「待上傳」選擇要用哪個版本', 'err', 4500);
+  else if (r.error) toast('無法送出：' + r.error, 'err', 4500);
+  else toast(`${label}（已存到手機，有網路時會自動上傳）`, 'warn');
+  return r;
 }
 
 export function RejectModal({ onClose, onSubmit }) {
@@ -101,9 +121,24 @@ function EditModal({ d, onClose, onSaved }) {
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setF(o => ({ ...o, [k]: v }));
   async function save() {
+    // 只送有改的欄位
+    const changed = Object.fromEntries(Object.entries(f).filter(([k, v]) => String(v ?? '') !== String(d[k] ?? '')));
+    if (!Object.keys(changed).length) { onClose(); return; }
     setBusy(true);
-    try { onSaved(await call('updateDefect', { 缺失ID: d.缺失ID, 欄位: f, 更新時間: d.更新時間 })); toast('已更新', 'ok'); onClose(); }
-    catch (e) { toast(e.code === 'CONFLICT' ? '這筆剛被別人改過，請關閉後重新整理再改' : errText(e), 'err'); } finally { setBusy(false); }
+    try {
+      const data = { 缺失ID: d.缺失ID, 欄位: changed };
+      if ('更新時間' in d) data.更新時間 = d.更新時間 ?? '';
+      const r = await enqueueAndSend('updateDefect', data, `編輯 ${d.棟 ? d.棟 + '棟 ' : ''}${d.戶別 || ''} ${d.窗號 || ''}`.trim());
+      if (r.result) { onSaved(await withPendingFix(r.result)); toast('已更新', 'ok'); }
+      else {
+        const c = await cachedDefect(d.缺失ID);
+        onSaved(c || { ...d, ...changed, _pending: '編輯' });
+        if (r.conflict) toast('這筆剛被別人改過，請到「待上傳」選擇要用哪個版本', 'err', 4500);
+        else if (r.error) toast('無法送出：' + r.error, 'err', 4500);
+        else toast('已存到手機，有網路時會自動上傳', 'warn');
+      }
+      onClose();
+    } catch (e) { toast(errText(e), 'err'); } finally { setBusy(false); }
   }
   return (
     <Modal title="編輯缺失" onClose={onClose} full>

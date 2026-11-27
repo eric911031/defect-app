@@ -52,7 +52,7 @@ export function isStandalone() {
 }
 const A2HS_KEY = 'a2hsHideUntil';
 export function Banners() {
-  const { pending, pendingOld } = useStore();
+  const { pending, pendingOld, pendingConflict } = useStore();
   const [hideUntil, setHideUntil] = useState(() => { try { return +localStorage.getItem(A2HS_KEY) || 0; } catch { return 0; } });
   const showA2hs = isIos() && !isStandalone() && (pending > 0 || hideUntil < Date.now());
   function hide() {
@@ -62,6 +62,11 @@ export function Banners() {
   }
   return (
     <>
+      {pendingConflict > 0 && (
+        <div class="banner alert" role="alert">
+          <span class="grow">⚠ 有 {pendingConflict} 筆你的修改和別人的修改衝突，請到 <a href="#/queue">待上傳</a> 選擇要用哪個版本。</span>
+        </div>
+      )}
       {pendingOld > 0 && (
         <div class="banner alert" role="alert">
           <span class="grow">⚠ 有 {pendingOld} 筆待上傳超過 24 小時還沒送出。請連上網路，到 <a href="#/queue">待上傳</a> 按「立即上傳」。</span>

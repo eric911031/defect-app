@@ -2,7 +2,7 @@
 import { call } from './api.js';
 import { kv } from './db.js';
 import { setState, getState } from './store.js';
-import { getSiteData, overlay, upsertItems, pendingOverlay, pendingDefect, applyFix } from './offline.js';
+import { getSiteData, overlay, upsertItems, pendingOverlay, pendingDefect, applyPending } from './offline.js';
 
 export async function loadMe() {
   try {
@@ -81,8 +81,8 @@ export async function cachedDefect(id) {
   const site = getState().site;
   if (!site) return null;
   const user = getState().user;
-  const { creates, fixes } = await pendingOverlay();
-  const c = creates.find(x => x.缺失ID === id);
+  const ov = await pendingOverlay();
+  const c = ov.creates.find(x => x.缺失ID === id);
   if (c) return pendingDefect(c, user);
   let d = (await getSiteData(site.工地ID))?.items?.find(x => x.缺失ID === id);
   if (!d) for (const st of ['未改善', 'all', '待確認', '已結案']) {
@@ -90,14 +90,13 @@ export async function cachedDefect(id) {
     d = cc?.items?.find(x => x.缺失ID === id);
     if (d) break;
   }
-  return d ? applyFix(d, fixes.get(id), user) : null;
+  return d ? applyPending(d, ov, user) : null;
 }
 
-// 線上取得的單筆疊上待上傳的改善
+// 線上取得的單筆疊上待上傳的改善、編輯、確認
 export async function withPendingFix(d) {
   if (!d) return d;
-  const { fixes } = await pendingOverlay();
-  return applyFix(d, fixes.get(d.缺失ID), getState().user);
+  return applyPending(d, await pendingOverlay(), getState().user);
 }
 
 // 先回快取（若有）再背景更新：onData 可能被呼叫兩次

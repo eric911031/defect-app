@@ -1,9 +1,13 @@
 // API 呼叫：依 API 合約 POST JSON（text/plain 避開 CORS 預檢）。
-import { config } from './config.js';
+import { config, DEV_TOOLS } from './config.js';
 import { auth } from './auth.js';
 
 export class ApiError extends Error {
-  constructor(code, message, network = false) { super(message); this.code = code; this.network = network; }
+  // extra：後端 error 物件的其他欄位（例如 CONFLICT 的 目前資料、INTERNAL 的 ref）
+  constructor(code, message, network = false, extra = null) {
+    super(message); this.code = code; this.network = network;
+    if (extra) for (const [k, v] of Object.entries(extra)) if (!(k in this) && k !== 'message') this[k] = v;
+  }
 }
 
 let mockMod;
@@ -14,7 +18,8 @@ async function mockCall(action, data) {
 }
 
 export async function call(action, data = {}) {
-  if (config.mock) return mockCall(action, data);
+  // DEV_TOOLS 是建置時常數：正式建置會把假資料整段移除
+  if (DEV_TOOLS && config.mock) return mockCall(action, data);
   if (!navigator.onLine) throw new ApiError('NETWORK', '目前沒有網路', true);
   const token = auth.token();
   const body = JSON.stringify({ action, idToken: token, data });
@@ -34,7 +39,8 @@ export async function call(action, data = {}) {
   try { json = await res.json(); } catch { throw new ApiError('NETWORK', '伺服器回應格式錯誤', true); }
   if (!json.ok) {
     const err = json.error || {};
-    throw new ApiError(err.code || 'ERROR', err.message || '發生錯誤');
+    const { code, message, ...extra } = err;
+    throw new ApiError(code || 'ERROR', message || '發生錯誤', false, extra);
   }
   return json.data;
 }

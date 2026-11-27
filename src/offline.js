@@ -142,7 +142,11 @@ export async function pendingOverlay() {
   try { q = await queueStore.all(); } catch {}
   const creates = q.filter(i => i.action === 'createDefect').map(i => i.data);
   const fixes = new Map(q.filter(i => i.action === 'submitFix').map(i => [i.data.缺失ID, i.data]));
-  return { creates, fixes };
+  // O4：離線的確認／退回／編輯（衝突中的也照樣顯示成「待上傳」，直到使用者處理）
+  const reviews = new Map(q.filter(i => i.action === 'review').map(i => [i.data.缺失ID, i.data]));
+  const updates = new Map(q.filter(i => i.action === 'updateDefect').map(i => [i.data.缺失ID, i.data]));
+  const conflicts = new Set(q.filter(i => i.conflict).map(i => i.data.缺失ID));
+  return { creates, fixes, reviews, updates, conflicts };
 }
 
 export function pendingDefect(data, user) {
@@ -158,13 +162,34 @@ export function applyFix(d, fix, user) {
   return { ...d, 狀態: '待確認', 改善日期: fix.改善日期 || '', 改善人: user?.Email || '', 改善後照片ID: '', 改善後照片網址: fix.改善後照片 ? DATA_URL(fix.改善後照片) : '', 退回原因: d.退回原因, _pending: '改善' };
 }
 
+// 把所有待上傳的動作依序疊到一筆上（改善 → 編輯 → 確認／退回）
+export function applyPending(d, ov, user) {
+  if (!d || !ov) return d;
+  const id = d.缺失ID;
+  let out = applyFix(d, ov.fixes?.get(id), user);
+  const up = ov.updates?.get(id);
+  if (up) out = { ...out, ...up.欄位, _pending: out._pending || '編輯' };
+  const rv = ov.reviews?.get(id);
+  if (rv && out.狀態 === '待確認') {
+    const today = new Date().toISOString().slice(0, 10);
+    out = rv.結果 === '通過'
+      ? { ...out, 狀態: '已結案', 確認人: user?.Email || '', 確認日期: today, 退回原因: '', _pending: '確認' }
+      : { ...out, 狀態: '未改善', 退回原因: rv.退回原因 || '', 確認人: user?.Email || '', 確認日期: today, _pending: '退回' };
+  }
+  if (ov.conflicts?.has(id) && out._pending) out = { ...out, _conflict: true };
+  return out;
+}
+
 // items：某工地、某狀態（'' 代表全部）的伺服器資料；回傳疊上待上傳後的清單
 export async function overlay(items, siteId, status, extraBase) {
-  const { creates, fixes } = await pendingOverlay();
-  if (!creates.length && !fixes.size) return items;
+  const ov = await pendingOverlay();
+  const { creates, fixes, reviews, updates } = ov;
+  if (!creates.length && !fixes.size && !reviews.size && !updates.size) return items;
   const user = getState().user;
   const ids = new Set(items.map(d => d.缺失ID));
-  let out = items.map(d => applyFix(d, fixes.get(d.缺失ID), user));
+  let out = items.map(d => applyPending(d, ov, user));
+  // 待確認清單：已在手機上確認／退回的拿掉（其他清單保留，顯示新狀態與「待上傳」）
+  if (status === '待確認' && reviews.size) out = out.filter(d => !reviews.has(d.缺失ID));
   // 待確認清單：補上已回報改善但還沒上傳的（從離線資料找原始那筆）
   if (status === '待確認' && fixes.size) {
     const base = extraBase || (await getSiteData(siteId))?.items || [];
