@@ -7,6 +7,9 @@ const state = {
   codes: [],
   pending: 0,        // 待上傳筆數
   pendingFailed: 0,
+  pendingOld: 0,     // 超過 24 小時未送出的待上傳筆數
+  offlineAt: 0,      // 上次下載離線資料的時間
+  offlineSyncing: false,
   online: navigator.onLine,
   syncing: false,
   toast: null,

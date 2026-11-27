@@ -5,6 +5,7 @@ import { auth } from './auth.js';
 import { kv } from './db.js';
 import { loadMe, loadCodes } from './data.js';
 import { startAutoSync, flush } from './queue.js';
+import { autoUpdate, getMeta } from './offline.js';
 import { errText } from './api.js';
 import { isReadOnly } from './util.js';
 import { Toast, TabBar, Spinner } from './components.jsx';
@@ -30,8 +31,7 @@ export function App() {
 
   async function start() {
     setBoot('loading');
-    const a = auth.current();
-    if (!a || a.expired) { setBoot('login'); return; }
+    if (!auth.usable()) { setBoot('login'); return; }
     // 有快取時先直接顯示畫面，背景再向後端更新（Apps Script 冷啟動要 1–3 秒）
     const cachedMe = await kv.get('me').catch(() => null);
     if (cachedMe && !needLogin) {
@@ -53,6 +53,8 @@ export function App() {
     if (s) selectSite(s);
     setBoot('ready');
     if (!syncStarted) { syncStarted = true; startAutoSync(); } else flush();
+    getMeta().then(m => m && m.email === me.Email && setState({ offlineAt: m.at }));
+    autoUpdate();
   }
   function handleErr(e) {
     {
@@ -69,7 +71,7 @@ export function App() {
 
   if (route.path === '/settings') return <><Settings /><Toast /></>;
   if (boot === 'loading') return <div class="boot"><Spinner label="啟動中…" /></div>;
-  if (boot === 'login' || needLogin || (boot === 'ready' && !user)) return <><Login expired={needLogin || auth.current()?.expired} onLogin={start} />{bootErr && <p class="err center">{bootErr}</p>}<Toast /></>;
+  if (boot === 'login' || needLogin || (boot === 'ready' && !user)) return <><Login expired={needLogin || (auth.current()?.expired && !auth.current()?.sessionToken)} onLogin={start} />{bootErr && <p class="err center">{bootErr}</p>}<Toast /></>;
   if (boot === 'error') return <div class="boot"><p class="err">{bootErr}</p><button class="btn" onClick={start}>重試</button></div>;
 
   const [p0, p1] = route.parts;

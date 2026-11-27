@@ -116,8 +116,11 @@ export async function handle(action, data = {}, token) {
       if (data.棟) list = list.filter(d => d.棟 === data.棟);
       if (data.戶別) list = list.filter(d => d.戶別 === normUnit(data.戶別));
       if (data.關鍵字) { const k = data.關鍵字.toUpperCase(); list = list.filter(d => JSON.stringify(view(d)).toUpperCase().includes(k)); }
+      // 增量（與 SO-B 的 更新於之後 / serverTime 同形）
+      const ids = data.更新於之後 ? list.map(d => d.缺失ID) : undefined;
+      if (data.更新於之後) list = list.filter(d => d.更新時間 > data.更新於之後);
       const per = data.每頁 || 200, page = data.頁 || 1;
-      return { items: list.slice((page - 1) * per, page * per).map(d => view(d)), total: list.length };
+      return { items: list.slice((page - 1) * per, page * per).map(d => view(d)), total: list.length, serverTime: now(), ids };
     }
     case 'getDefect': { const d = find(data.缺失ID); siteCheck(u, d.工地ID); return view(d, true); }
     case 'createDefect': {

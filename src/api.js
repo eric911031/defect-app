@@ -9,7 +9,7 @@ export class ApiError extends Error {
 let mockMod;
 async function mockCall(action, data) {
   mockMod ||= await import('./mock.js');
-  if (config.mockOffline) { await new Promise(r => setTimeout(r, 300)); throw new ApiError('NETWORK', '（模擬）沒有網路', true); }
+  if (config.mockOffline || !navigator.onLine) { await new Promise(r => setTimeout(r, 300)); throw new ApiError('NETWORK', '（模擬）沒有網路', true); }
   return mockMod.handle(action, data, auth.token());
 }
 

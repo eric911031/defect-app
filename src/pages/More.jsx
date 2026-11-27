@@ -1,4 +1,6 @@
-import { useState } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
+import { downloadAll, getMeta, offlineSites, fmtBytes, fmtDateTime } from '../offline.js';
+import { errText } from '../api.js';
 import { useStore, setState, toast } from '../store.js';
 import { Header } from '../components.jsx';
 import { auth } from '../auth.js';
@@ -18,6 +20,7 @@ export function More() {
       <Header title="更多" />
       <main class="page">
         <div class="card me"><b>{user.姓名 || user.Email}</b><small>{user.Email}・{user.角色}{user.公司 ? '・' + user.公司 : ''}</small></div>
+        <OfflineCard />
         <ul class="list menu">
           <li><a class="row" href="#/sites">切換工地<small>{site?.名稱}</small></a></li>
           <li><a class="row" href="#/queue">待上傳<small>{pending} 筆</small></a></li>
@@ -79,5 +82,48 @@ export function Settings() {
         <button class="btn ghost block" onClick={clearCache}>清除快取資料</button>
       </main>
     </>
+  );
+}
+
+// O2 / O6：下載離線資料、顯示筆數、佔用空間與手機儲存用量
+function OfflineCard() {
+  const { user, online, offlineAt, offlineSyncing } = useStore();
+  const [meta, setMeta] = useState(null);
+  const [prog, setProg] = useState(null);
+  const [est, setEst] = useState(null);
+  const sites = offlineSites(user);
+  const refresh = () => {
+    getMeta().then(m => setMeta(m && m.email === user.Email ? m : null));
+    if (navigator.storage?.estimate) navigator.storage.estimate().then(setEst).catch(() => {});
+  };
+  useEffect(refresh, [offlineAt]);
+  async function run() {
+    setProg({ i: 0, n: sites.length, count: 0, name: '' });
+    try {
+      const m = await downloadAll({ full: true, onProgress: p => setProg({ i: p.i, n: p.n, count: p.count, name: p.site.名稱 }) });
+      toast(`已下載 ${m.total} 筆缺失（${sites.length} 個工地）`, 'ok');
+    } catch (e) { toast('下載失敗：' + errText(e), 'err'); }
+    finally { setProg(null); refresh(); }
+  }
+  const pct = prog ? Math.round(((prog.i + (prog.count ? 0.5 : 0)) / Math.max(1, prog.n)) * 100) : 0;
+  return (
+    <section class="card">
+      <h3>離線資料</h3>
+      <p class="muted small">下載後沒有網路也能看清單、明細與統計（只下載文字，照片要有網路才會顯示）。有網路開 App 時會自動更新。</p>
+      {meta ? (
+        <>
+          <p class="small">上次下載：<b>{fmtDateTime(meta.at)}</b>・{meta.total} 筆・約 {fmtBytes(meta.bytes)}</p>
+          <ul class="dl-sites">{Object.entries(meta.sites || {}).map(([id, x]) => <li><span>{x.名稱 || id}</span><span>{x.筆數} 筆</span></li>)}</ul>
+        </>
+      ) : <p class="small">還沒下載。</p>}
+      {prog && <>
+        <div class="meter" role="progressbar" aria-valuenow={pct} aria-valuemin="0" aria-valuemax="100"><span style={{ width: pct + '%' }} /></div>
+        <p class="small muted">下載中：{prog.name}（{prog.i + 1}/{prog.n}）{prog.count ? `・${prog.count} 筆` : ''}</p>
+      </>}
+      <button class="btn primary block" disabled={!!prog || offlineSyncing || !online || !sites.length} onClick={run}>
+        {prog ? '下載中…' : offlineSyncing ? '自動更新中…' : !online ? '沒有網路，無法下載' : meta ? '重新下載離線資料' : '下載離線資料'}
+      </button>
+      {est && est.quota ? <p class="muted small">這支手機給本 App 的空間：已用 {fmtBytes(est.usage)} / 可用 {fmtBytes(est.quota)}</p> : null}
+    </section>
   );
 }
