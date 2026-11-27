@@ -24,11 +24,13 @@ export function toList(v) {
 export function floors(range) {
   const out = [];
   for (const part of toList(range)) {
-    const m = part.match(/^(B?)(\d+)\s*[-~]\s*(B?)(\d+)$/i);
+    // 接受 2-23、1F-20F、B2-5F；單層 5F、B1、RF（屋頂）、PRF 等英文樓層原樣保留
+    const m = part.match(/^(B?)(\d+)F?\s*[-~]\s*(B?)(\d+)F?$/i);
     if (m) {
       const a = (m[1] ? -1 : 1) * +m[2], b = (m[3] ? -1 : 1) * +m[4];
       for (let i = Math.min(a, b); i <= Math.max(a, b); i++) if (i !== 0) out.push(i < 0 ? `B${-i}F` : `${i}F`);
     } else if (/^B?\d+F?$/i.test(part)) out.push(part.toUpperCase().replace(/F?$/, 'F'));
+    else if (/^[A-Z]{1,3}F$/i.test(part)) out.push(part.toUpperCase());
   }
   return [...new Set(out)];
 }
