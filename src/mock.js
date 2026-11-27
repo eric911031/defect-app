@@ -195,6 +195,14 @@ export async function handle(action, data = {}, token) {
       d.更新時間 = now();
       return view(d);
     }
+    case 'deleteDefect': {
+      need(u, '管理者');
+      const d = find(data.缺失ID);
+      siteCheck(u, d.工地ID);
+      conflictCheck(u, d, data);
+      db.缺失.splice(db.缺失.indexOf(d), 1);
+      return { 缺失ID: d.缺失ID, 已刪除: true };
+    }
     case 'stats': {
       need(u, '管理者');
       const list = db.缺失.filter(d => !data.工地ID || d.工地ID === data.工地ID);
