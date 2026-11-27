@@ -4,13 +4,20 @@
 import { queueStore } from './db.js';
 import { call, ApiError } from './api.js';
 import { setState, getState } from './store.js';
+import { upsertItems, autoUpdate } from './offline.js';
 
 const listeners = new Set();
 export function onSent(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 
+const DAY = 86400e3;
 export async function refreshCount() {
   const items = await queueStore.all();
-  setState({ pending: items.length, pendingFailed: items.filter(i => i.error && !i.retryable).length });
+  const now = Date.now();
+  setState({
+    pending: items.length,
+    pendingFailed: items.filter(i => i.error && !i.retryable).length,
+    pendingOld: items.filter(i => now - i.createdAt > DAY).length // 超過 24 小時還沒送出
+  });
   return items;
 }
 
@@ -33,6 +40,8 @@ export function flush({ includeFailed = false } = {}) {
         if (item.error && !item.retryable && !includeFailed) continue;
         try {
           const result = await call(item.action, item.data);
+          // 先更新離線資料再刪佇列，清單不會出現「兩筆都沒有」的空檔
+          if (result?.缺失ID && result.工地ID) await upsertItems(result.工地ID, [result]).catch(() => {});
           await queueStore.del(item.id);
           sent++;
           listeners.forEach(f => f(item, result));
@@ -65,9 +74,9 @@ export async function listItems() { return queueStore.all(); }
 
 export function startAutoSync() {
   const kick = () => { if (getState().user && !getState().needLogin) flush(); };
-  window.addEventListener('online', () => { setState({ online: true }); kick(); });
+  window.addEventListener('online', () => { setState({ online: true }); kick(); autoUpdate(); });
   window.addEventListener('offline', () => setState({ online: false }));
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') kick(); });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { kick(); refreshCount(); autoUpdate(); } });
   setInterval(kick, 60000);
   refreshCount().then(kick);
 }

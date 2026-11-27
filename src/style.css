@@ -197,3 +197,21 @@ select.chip.sel.on { background-color: var(--pri); color: var(--pri-ink); border
 .progress span { display: block; height: 100%; background: var(--pri); border-radius: 999px; transition: width .4s; }
 .warn-box { background: var(--warn-bg); color: var(--warn-ink); border-color: transparent; }
 .parts { margin-top: 8px; }
+
+/* ---- 離線（SO-F） ---- */
+.thumb.none.off { font-size: 11px; color: var(--warn-ink); background: var(--warn-bg); }
+.pair span.pimg.off { background: var(--warn-bg) !important; color: var(--warn-ink); font-size: 13px; padding: 12px; text-align: center; line-height: 1.4; }
+.ref .pimg { display: grid; place-items: center; width: 100%; max-height: 40vh; aspect-ratio: 4/3; object-fit: contain; background: var(--line); color: var(--muted); font-size: 13px; text-align: center; padding: 8px; }
+.ref .pimg.off { background: var(--warn-bg); color: var(--warn-ink); }
+.tag-pending { display: inline-block; align-self: flex-start; font-size: 11px; font-weight: 700; color: var(--warn-ink); background: var(--warn-bg); border-radius: 6px; padding: 1px 6px; margin-bottom: 2px; }
+.banner { display: flex; gap: 10px; align-items: flex-start; margin: 8px 12px 0; padding: 10px 12px; border-radius: 10px; font-size: 14px; line-height: 1.45; background: var(--warn-bg); color: var(--warn-ink); }
+.banner.alert { background: var(--bad); color: #fff; }
+.banner .grow { flex: 1; }
+.banner a, .banner .link { color: inherit; font-weight: 700; text-decoration: underline; }
+.banner .x { border: 0; background: transparent; color: inherit; font-size: 18px; line-height: 1; padding: 0 2px; }
+.meter { height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; margin: 8px 0 4px; }
+.meter > span { display: block; height: 100%; background: var(--pri); transition: width .2s; }
+.dl-sites { list-style: none; margin: 6px 0 0; padding: 0; font-size: 13px; }
+.dl-sites li { display: flex; justify-content: space-between; padding: 3px 0; border-top: 1px solid var(--line); }
+.asof { font-size: 13px; color: var(--muted); margin: 4px 0 8px; }
+.asof.off { color: var(--warn-ink); background: var(--warn-bg); padding: 6px 10px; border-radius: 8px; }

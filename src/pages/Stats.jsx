@@ -3,7 +3,8 @@ import { useStore } from '../store.js';
 import { Header, Spinner } from '../components.jsx';
 import { call, errText } from '../api.js';
 import { STATUS } from '../config.js';
-import { swr } from '../data.js';
+import { kv } from '../db.js';
+import { offlineStats, fmtDateTime } from '../offline.js';
 import { isReadOnly } from '../util.js';
 import { selectSite } from './Sites.jsx';
 import { go } from '../router.js';
@@ -49,15 +50,35 @@ export function Stats() {
   const [scope, setScope] = useState(isReadOnly(site) ? site.工地ID : 'site'); // 'site' | 'all' | 舊建案工地ID
   const oldSite = olds.find(s => s.工地ID === scope);
   const [data, setData] = useState(null);
+  const [asOf, setAsOf] = useState(null); // 不是即時資料時：{ at, local }
   const [err, setErr] = useState('');
   const [table, setTable] = useState(false);
+  const { online, offlineAt } = useStore();
   useEffect(() => {
-    setData(null); setErr('');
+    setData(null); setErr(''); setAsOf(null);
     let live = true;
     const q = scope === 'site' ? { 工地ID: site.工地ID } : scope === 'all' ? {} : { 工地ID: scope };
-    swr('stats:' + (q.工地ID || 'all'), () => call('stats', q), v => live && setData(v)).catch(e => live && setErr(errText(e)));
+    const key = 'stats:' + (q.工地ID || 'all');
+    (async () => {
+      // 先顯示上次的統計，再向後端更新
+      const cached = await kv.get(key).catch(() => null);
+      if (cached && live) { setData(cached.v); setAsOf({ at: cached.at }); }
+      try {
+        const v = await call('stats', q);
+        kv.set(key, { v, at: Date.now() }).catch(() => {});
+        if (live) { setData(v); setAsOf(null); }
+      } catch (e) {
+        if (!live) return;
+        if (!e.network) { if (!cached) setErr(errText(e)); return; }
+        // 沒有網路：用手機上已下載的資料計算（O7）；比上次統計新就用它
+        const loc = await offlineStats(q.工地ID);
+        if (!live) return;
+        if (loc && (!cached || loc.at >= cached.at)) { setData(loc.data); setAsOf({ at: loc.at, local: true }); }
+        else if (!cached) setErr('目前沒有網路，也還沒下載離線資料。請到「更多 › 下載離線資料」。');
+      }
+    })();
     return () => { live = false; };
-  }, [site.工地ID, scope]);
+  }, [site.工地ID, scope, online, offlineAt]);
   const counts = data?.狀態 || {};
   const total = STATUS.reduce((a, s) => a + (counts[s] || 0), 0);
   const rank = (data?.代碼排名 || []).slice(0, 15);
@@ -88,6 +109,7 @@ export function Stats() {
         )}
         {err && <p class="err">{err}</p>}
         {!data && !err && <Spinner />}
+        {data && asOf && <p class={'asof' + (online ? '' : ' off')}>{online ? '' : '離線中・'}依 {fmtDateTime(asOf.at)} 的資料{asOf.local ? '（手機上已下載的資料計算）' : ''}</p>}
         {data && <>
           <section class="card"><h3>改善狀態</h3>
             {table ? <table class="tbl"><tr><th>狀態</th><th>筆數</th></tr>{STATUS.map(s => <tr><td>{s}</td><td>{counts[s] || 0}</td></tr>)}</table>

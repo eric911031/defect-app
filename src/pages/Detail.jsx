@@ -7,18 +7,22 @@ import { enqueue, flush } from '../queue.js';
 import { go } from '../router.js';
 import { POSITIONS } from '../config.js';
 import { today, isReadOnly } from '../util.js';
-import { cachedDefect } from '../data.js';
+import { cachedDefect, withPendingFix } from '../data.js';
 
 export function useDefect(id) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState('');
   useEffect(() => {
     setD(null); setErr('');
-    call('getDefect', { 缺失ID: id }).then(setD).catch(async e => {
-      // 離線時改用清單快取，讓改善者仍可拍照回報（照片稍後補送）
-      if (e.network) { const c = await cachedDefect(id); if (c) return setD({ ...c, 離線: true }); }
-      setErr(errText(e));
+    let live = true;
+    const tryLocal = async () => { const c = await cachedDefect(id); if (c && live) { setD(c._pending === '登記' ? c : { ...c, 離線: true }); return true; } return false; };
+    call('getDefect', { 缺失ID: id }).then(async x => live && setD(await withPendingFix(x))).catch(async e => {
+      // 離線時改用離線資料／清單快取，讓改善者仍可拍照回報（照片稍後補送）
+      // 還沒上傳的登記在伺服器上找不到（NOT_FOUND）：顯示手機上的版本
+      if ((e.network || e.code === 'NOT_FOUND') && await tryLocal()) return;
+      live && setErr(errText(e));
     });
+    return () => { live = false; };
   }, [id]);
   return { d, setD, err };
 }
@@ -59,15 +63,16 @@ export function Detail({ id }) {
   }
   return (
     <>
-      <Header title="缺失明細" backTo={-1} right={role === '管理者' && !ro && <button class="hdr-btn txt" onClick={() => setEditing(true)}>編輯</button>} />
+      <Header title="缺失明細" backTo={-1} right={role === '管理者' && !ro && !d._pending && !d.離線 && <button class="hdr-btn txt" onClick={() => setEditing(true)}>編輯</button>} />
       <main class="page">
         <div class="dhead"><StatusPill s={d.狀態} /><b>{d.棟 ? d.棟 + '棟 ' : ''}{d.戶別} {d.窗號}</b></div>
-        {d.離線 && <p class="warn small">離線中，顯示上次下載的資料</p>}
+        {d._pending && <p class="warn small">這筆{d._pending === '登記' ? '登記' : '改善回報'}還在手機上，有網路時會自動上傳。</p>}
+        {d.離線 && !d._pending && <p class="warn small">離線中，顯示上次下載的資料{navigator.onLine ? '' : '；照片需連線才能顯示'}</p>}
         <Photos d={d} />
         <dl class="kv">{rows.map(([k, v]) => <><dt>{k}</dt><dd class={k === '退回原因' ? 'bad' : ''}>{v}</dd></>)}</dl>
         <div class="actions">
-          {!ro && d.狀態 === '未改善' && (role === '改善者' || role === '管理者') && <button class="btn primary block" onClick={() => go('/fix/' + encodeURIComponent(id))}>改善回報</button>}
-          {!ro && d.狀態 === '待確認' && role === '管理者' && <>
+          {!ro && !d._pending && d.狀態 === '未改善' && (role === '改善者' || role === '管理者') && <button class="btn primary block" onClick={() => go('/fix/' + encodeURIComponent(id))}>改善回報</button>}
+          {!ro && !d._pending && !d.離線 && d.狀態 === '待確認' && role === '管理者' && <>
             <button class="btn danger" onClick={() => setRejecting(true)}>退回</button>
             <button class="btn primary" onClick={() => review('通過')}>通過</button>
           </>}
@@ -139,7 +144,7 @@ export function Fix({ id }) {
         {d && <>
           <div class="dhead"><b>{d.棟 ? d.棟 + '棟 ' : ''}{d.戶別} {d.窗號}</b> {d.代碼} {d.代碼內容 || codeText(d.代碼)}</div>
           {d.退回原因 && <p class="warn">上次退回：{d.退回原因}</p>}
-          <figure class="ref">{(d.改善前照片網址 || d.改善前縮圖網址) && <img src={d.改善前照片網址 || d.改善前縮圖網址} alt="改善前" />}<figcaption>改善前</figcaption></figure>
+          <figure class="ref"><Thumb url={d.改善前照片網址 || d.改善前縮圖網址} fileId={d.改善前照片ID} cls="pimg" /><figcaption>改善前</figcaption></figure>
         </>}
         {!d && !err && <Spinner />}
         <PhotoInput label="改善後照片" value={photo} onChange={setPhoto} />

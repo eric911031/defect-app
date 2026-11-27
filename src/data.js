@@ -2,6 +2,7 @@
 import { call } from './api.js';
 import { kv } from './db.js';
 import { setState, getState } from './store.js';
+import { getSiteData, overlay, upsertItems, pendingOverlay, pendingDefect, applyFix } from './offline.js';
 
 export async function loadMe() {
   try {
@@ -25,9 +26,28 @@ export async function loadCodes() {
   }
 }
 
-// 讀取某工地的缺失（自動翻頁）。回傳 {items, fromCache}
+// 讀取某工地的缺失（自動翻頁）。回傳 {items, fromCache, at}；items 已疊上待上傳資料
 export const defectsKey = (siteId, status) => `defects:${siteId}:${status || 'all'}`;
-export async function cachedDefects(siteId, status) { try { return await kv.get(defectsKey(siteId, status)); } catch { return null; } }
+const matchStatus = status => d => !status || d.狀態 === status;
+
+// 本機最新的資料：離線下載與清單快取取較新的一份
+async function localDefects(siteId, status) {
+  let c = null, o = null;
+  try { c = await kv.get(defectsKey(siteId, status)); } catch {}
+  o = await getSiteData(siteId);
+  if (o && (!c || o.at >= c.at)) return { items: o.items.filter(matchStatus(status)), at: o.at, offline: true };
+  return c ? { items: c.items, at: c.at } : null;
+}
+
+export async function cachedDefects(siteId, status) {
+  const l = await localDefects(siteId, status);
+  if (!l) {
+    // 沒有任何快取：至少顯示待上傳的登記
+    const ov = await overlay([], siteId, status);
+    return ov.length ? { items: ov, at: Date.now() } : null;
+  }
+  return { ...l, items: await overlay(l.items, siteId, status) };
+}
 
 export async function loadDefects(siteId, status) {
   const key = defectsKey(siteId, status);
@@ -42,9 +62,10 @@ export async function loadDefects(siteId, status) {
       page++;
     }
     kv.set(key, { items, at: Date.now() }).catch(() => {});
-    return { items, fromCache: false };
+    upsertItems(siteId, items).catch(() => {});
+    return { items: await overlay(items, siteId, status), fromCache: false };
   } catch (e) {
-    if (e.network) { const c = await kv.get(key); if (c) return { items: c.items, fromCache: true, at: c.at }; }
+    if (e.network) { const c = await cachedDefects(siteId, status); if (c) return { ...c, fromCache: true }; }
     throw e;
   }
 }
@@ -55,15 +76,28 @@ export function codeText(code) {
   return c ? c.內容 : '';
 }
 
+// 單筆：離線資料或清單快取（疊上待上傳）
 export async function cachedDefect(id) {
   const site = getState().site;
   if (!site) return null;
-  for (const st of ['未改善', 'all', '待確認', '已結案']) {
-    const c = await kv.get(`defects:${site.工地ID}:${st}`);
-    const d = c?.items?.find(x => x.缺失ID === id);
-    if (d) return d;
+  const user = getState().user;
+  const { creates, fixes } = await pendingOverlay();
+  const c = creates.find(x => x.缺失ID === id);
+  if (c) return pendingDefect(c, user);
+  let d = (await getSiteData(site.工地ID))?.items?.find(x => x.缺失ID === id);
+  if (!d) for (const st of ['未改善', 'all', '待確認', '已結案']) {
+    const cc = await kv.get(`defects:${site.工地ID}:${st}`).catch(() => null);
+    d = cc?.items?.find(x => x.缺失ID === id);
+    if (d) break;
   }
-  return null;
+  return d ? applyFix(d, fixes.get(id), user) : null;
+}
+
+// 線上取得的單筆疊上待上傳的改善
+export async function withPendingFix(d) {
+  if (!d) return d;
+  const { fixes } = await pendingOverlay();
+  return applyFix(d, fixes.get(d.缺失ID), getState().user);
 }
 
 // 先回快取（若有）再背景更新：onData 可能被呼叫兩次

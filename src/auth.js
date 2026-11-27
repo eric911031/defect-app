@@ -1,5 +1,7 @@
 // 登入：Google Identity Services 取 ID token；mock 模式選角色。
-// 後端若在 me 回傳 sessionToken（較長效期），之後改用它，避免每小時重新登入。
+// 後端若在 me 回傳 sessionToken，之後改用它，避免每小時重新登入。
+// 新版後端的 sessionToken 不設時效（sessionExp 為空）：沒有 exp 就視為不過期，
+// 只有後端回 UNAUTHENTICATED（強制登出、停用帳號）才要求重新登入。
 import { config } from './config.js';
 
 const KEY = 'auth';
@@ -20,14 +22,27 @@ export const auth = {
     if (a.exp && a.exp < Date.now() + 60e3) return { ...a, expired: true };
     return a;
   },
+  // 離線時不因時間要求重新登入：有登入資料就先讓人用（連線後由後端判斷）
+  usable() {
+    const a = this.current();
+    if (!a) return false;
+    return !a.expired || (!navigator.onLine && !!(a.sessionToken || a.idToken || a.mockEmail));
+  },
   token() {
     const a = this.current();
-    if (!a || a.expired) return null;
-    return a.sessionToken || a.idToken || a.mockEmail;
+    if (!a) return null;
+    // sessionToken 由後端判斷是否有效（舊格式到期時後端會回 UNAUTHENTICATED）
+    if (a.sessionToken) return a.sessionToken;
+    if (a.expired) return null;
+    return a.idToken || a.mockEmail;
   },
   hint() { return read()?.email || ''; },
   setGoogle(idToken) { const j = jwtExp(idToken); write({ kind: 'google', idToken, exp: j.exp, email: j.email, name: j.name }); },
-  setSession(sessionToken, expMs) { const a = read() || {}; write({ ...a, sessionToken, exp: expMs || Date.now() + 30 * 86400e3 }); },
+  setSession(sessionToken, expMs) {
+    const a = read() || {};
+    const exp = Number(expMs) > 0 ? Number(expMs) : null; // 空值＝不過期
+    write({ ...a, sessionToken, exp });
+  },
   setMock(email) { write({ kind: 'mock', mockEmail: email, email, exp: Date.now() + 30 * 86400e3 }); },
   logout() {
     const a = read();

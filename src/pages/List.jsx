@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { useStore } from '../store.js';
 import { Header, Spinner, StatusPill, Chips, Empty, Thumb } from '../components.jsx';
 import { loadDefects, cachedDefects, codeText } from '../data.js';
 import { onSent } from '../queue.js';
+import { fmtDateTime } from '../offline.js';
 import { go } from '../router.js';
 import { STATUS } from '../config.js';
 import { isReadOnly, parseUnit, detectLetterUnits } from '../util.js';
@@ -11,7 +12,7 @@ import { errText } from '../api.js';
 const natural = (a, b) => String(a).localeCompare(String(b), 'zh', { numeric: true });
 
 export function List() {
-  const { site, user } = useStore();
+  const { site, user, online } = useStore();
   const fixer = user.角色 === '改善者';
   const [status, setStatus] = useState(() => sessionStorage.getItem('listStatus') || '未改善');
   const [bld, setBld] = useState('');
@@ -25,14 +26,22 @@ export function List() {
   // 舊建案全部已結案，預設看全部
   const st = fixer ? '未改善' : ro && status === '未改善' ? '全部' : status;
 
-  useEffect(() => onSent(() => setTick(t => t + 1)), []);
+  // 上傳成功：先把那筆換成伺服器版本（不閃爍、不重複），再背景重新整理
+  useEffect(() => onSent((item, result) => {
+    if (result && result.缺失ID) setRes(r => r && { ...r, items: r.items.map(d => d.缺失ID === result.缺失ID ? result : d) });
+    setTick(t => t + 1);
+  }), [site.工地ID]);
+  const lastKey = useRef('');
   useEffect(() => {
     let live = true;
     const s2 = st === '全部' ? '' : st;
+    const key = site.工地ID + '|' + st;
+    const sameView = lastKey.current === key; // 只是重新整理：不要先顯示舊快取
+    lastKey.current = key;
     setErr('');
     let gotFresh = false;
-    cachedDefects(site.工地ID, s2).then(c => { if (live && c && !gotFresh) setRes({ items: c.items, fromCache: true, refreshing: true }); });
-    loadDefects(site.工地ID, s2).then(r => { gotFresh = true; live && setRes(r); }).catch(e => live && setErr(errText(e)));
+    if (!sameView) cachedDefects(site.工地ID, s2).then(c => { if (live && c && !gotFresh) setRes({ items: c.items, fromCache: true, at: c.at, refreshing: navigator.onLine }); });
+    loadDefects(site.工地ID, s2).then(r => { gotFresh = true; live && setRes(r); }).catch(e => live && !sameView && setErr(errText(e)));
     return () => { live = false; };
   }, [site.工地ID, st, tick]);
 
@@ -81,7 +90,7 @@ export function List() {
           {blds.length > 1 && <select value={bld} onChange={e => setBld(e.target.value)}><option value="">全部棟</option>{blds.map(b => <option value={b}>{b}棟</option>)}</select>}
           {floorOpts.length > 1 && <select value={floorF} onChange={e => setFloorF(e.target.value)}><option value="">全部樓層</option>{floorOpts.map(f => <option value={f}>{f}</option>)}</select>}
         </div>
-        {res?.refreshing ? <p class="muted small">更新中…</p> : res?.fromCache && <p class="warn small">離線中，顯示上次下載的資料</p>}
+        {res?.refreshing ? <p class="muted small">更新中…</p> : res?.fromCache && <p class="warn small">{online ? '無法連線' : '離線中'}，顯示 {res.at ? fmtDateTime(res.at) : '上次'} 下載的資料{online ? '' : '；照片需連線才能顯示'}</p>}
         {err && <p class="err">{err}</p>}
         {!res && !err && <Spinner />}
         {res && <p class="muted small">{groups.arr.length} 個樓層・{groups.unitCount} 戶・{groups.count} 筆{many ? '・點樓層展開' : ''}</p>}
@@ -114,6 +123,7 @@ export function DefectRow({ d }) {
       <button class="row defect" onClick={() => go('/defect/' + encodeURIComponent(d.缺失ID))}>
         <Thumb url={d.改善前縮圖網址} fileId={d.改善前照片ID} />
         <span class="dinfo">
+          {d._pending && <span class="tag-pending">待上傳・{d._pending}</span>}
           <span class="l1"><b>{d.窗號 || '—'}</b>{d.順序 ? <small> #{d.順序}</small> : null} {d.代碼 && <b class="code">{d.代碼}</b>} {text || (!d.代碼 && d.備註)}</span>
           {d.備註 && (d.代碼 || text) && <span class="l2">{d.備註}</span>}
           {d.退回原因 && d.狀態 === '未改善' && <span class="l2 bad">退回：{d.退回原因}</span>}

@@ -22,6 +22,7 @@ export function StatusPill({ s }) {
 export function Header({ title, backTo, right }) {
   const { site, pending, online, syncing } = useStore();
   return (
+    <>
     <header class="hdr">
       {backTo ? <button class="hdr-btn" onClick={() => (backTo === -1 ? history.back() : go(backTo))} aria-label="返回">‹</button>
         : <button class="hdr-site" onClick={() => go('/sites')}>{site ? site.名稱 : '選擇工地'}{isReadOnly(site) && <small class="ro">舊建案</small>} <span class="caret">▾</span></button>}
@@ -35,6 +36,47 @@ export function Header({ title, backTo, right }) {
         )}
       </div>
     </header>
+    <Banners />
+    </>
+  );
+}
+
+// ---- 提醒橫幅（O6）----
+// iPhone 用 Safari 開（不是主畫面 App）時，iOS 可能在 7 天沒開後清掉網站資料（含待上傳）。
+export function isIos() {
+  const ua = navigator.userAgent || '';
+  return /iPhone|iPad|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+export function isStandalone() {
+  return navigator.standalone === true || (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+}
+const A2HS_KEY = 'a2hsHideUntil';
+export function Banners() {
+  const { pending, pendingOld } = useStore();
+  const [hideUntil, setHideUntil] = useState(() => { try { return +localStorage.getItem(A2HS_KEY) || 0; } catch { return 0; } });
+  const showA2hs = isIos() && !isStandalone() && (pending > 0 || hideUntil < Date.now());
+  function hide() {
+    const t = Date.now() + 3 * 86400e3; // 暫時關閉 3 天
+    try { localStorage.setItem(A2HS_KEY, String(t)); } catch {}
+    setHideUntil(t);
+  }
+  return (
+    <>
+      {pendingOld > 0 && (
+        <div class="banner alert" role="alert">
+          <span class="grow">⚠ 有 {pendingOld} 筆待上傳超過 24 小時還沒送出。請連上網路，到 <a href="#/queue">待上傳</a> 按「立即上傳」。</span>
+        </div>
+      )}
+      {showA2hs && (
+        <div class="banner" role="note">
+          <span class="grow">
+            {pending > 0 ? <b>手機上有 {pending} 筆待上傳。</b> : null}
+            請把 App 加入主畫面再使用，資料比較不會被 Safari 清掉。<a href="#/help">怎麼加入</a>
+          </span>
+          {pending === 0 && <button class="x" aria-label="暫時關閉" onClick={hide}>×</button>}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -196,11 +238,14 @@ export function Chips({ options, value, onChange, allowEmpty }) {
 export function Empty({ children }) { return <div class="empty">{children}</div>; }
 
 // 照片縮圖：沒有現成網址時，用 photos action 批次載入（每次最多 20 張，只載入捲到畫面上的）
+// 照片不存到手機（使用者決定只下載文字）：離線或載入失敗時顯示提示，恢復網路後自動重新載入。
 import { call } from './api.js';
+const OFFLINE = Symbol('offline');
 const photoCache = new Map();
 let pendingIds = new Map(), timer = null;
 // 照片ID 可能是 AppSheet 路徑字串（各工地可能重複），快取與請求都以「工地ID + 照片ID」區分
 function requestPhoto(id) {
+  if (!navigator.onLine) return Promise.resolve(OFFLINE);
   const siteId = getState().site?.工地ID || '';
   const key = siteId + '|' + id;
   if (photoCache.has(key)) return photoCache.get(key);
@@ -226,25 +271,42 @@ async function flushPhotos() {
       try {
         const r = await call('photos', { 檔案ID: ids, 尺寸: 400, 工地ID: siteId || undefined });
         chunk.forEach((k, j) => { const u = r[ids[j]] || null; photoCache.set(k, Promise.resolve(u)); batch.get(k)(u); });
-      } catch {
-        chunk.forEach(k => { photoCache.delete(k); batch.get(k)(null); });
+      } catch (e) {
+        // 連線問題：不快取，之後恢復網路會重試
+        chunk.forEach(k => { photoCache.delete(k); batch.get(k)(e && e.network ? OFFLINE : null); });
       }
     }
   }
 }
+const isRemote = u => typeof u === 'string' && /^https?:/i.test(u);
 export function Thumb({ url, fileId, cls: c = 'thumb' }) {
   const ref = useRef();
+  const online = useStore(s => s.online);
   const [src, setSrc] = useState(url || null);
+  const [off, setOff] = useState(false);   // 離線中，照片需連線
+  const [fail, setFail] = useState(false); // 有網路但載不到
   useEffect(() => {
-    if (url || !fileId) return;
-    if (!ref.current) return;
+    setFail(false);
+    if (url) {
+      // 遠端網址離線時載不到；本機（data:）照片照常顯示
+      setSrc(url); setOff(isRemote(url) && !navigator.onLine);
+      return;
+    }
+    if (!fileId || !ref.current) return;
+    setOff(false);
     let live = true;
     const io = new IntersectionObserver(es => {
-      if (es.some(e => e.isIntersecting)) { io.disconnect(); requestPhoto(fileId).then(u => live && setSrc(u)); }
+      if (es.some(e => e.isIntersecting)) {
+        io.disconnect();
+        requestPhoto(fileId).then(u => { if (!live) return; if (u === OFFLINE) { setOff(true); setSrc(null); } else { setSrc(u); setOff(false); if (!u) setFail(true); } });
+      }
     }, { rootMargin: '200px' });
     io.observe(ref.current);
     return () => { live = false; io.disconnect(); };
-  }, [url, fileId]);
+  }, [url, fileId, online]);
+  const big = c !== 'thumb';
   if (!url && !fileId) return <span class={c + ' none'}>無照片</span>;
-  return src ? <img ref={ref} class={c} src={src} loading="lazy" alt="" /> : <span ref={ref} class={c + ' none'}>…</span>;
+  if (off) return <span ref={ref} class={c + ' none off'} title="離線中，照片需連線才能顯示">{big ? '離線中，照片需連線才能顯示' : '離線'}</span>;
+  if (src) return <img ref={ref} class={c} src={src} loading="lazy" alt="" onError={() => { if (!navigator.onLine) setOff(true); else { setSrc(null); setFail(true); } }} />;
+  return <span ref={ref} class={c + ' none'}>{fail ? (big ? '照片載入失敗' : '失敗') : '…'}</span>;
 }
