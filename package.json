@@ -10,11 +10,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "preact": "^10.29.8"
+    "preact": "^11.2.0"
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.10.6",
-    "vite": "^7.3.8",
+    "vite": "^8.3.8",
     "vite-plugin-pwa": "^2.0.0"
   }
 }
